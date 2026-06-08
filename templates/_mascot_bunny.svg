@@ -1,0 +1,66 @@
+<svg viewBox="0 0 220 220" width="160" height="160" xmlns="http://www.w3.org/2000/svg" aria-label="코코 토끼" role="img">
+  <defs>
+    <radialGradient id="bunnyBody-{{ uid|default('x') }}" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#fff"/>
+      <stop offset="70%" stop-color="#fff1f5"/>
+      <stop offset="100%" stop-color="#fbcfe8"/>
+    </radialGradient>
+    <radialGradient id="cheek-{{ uid|default('x') }}" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#fb7185" stop-opacity=".9"/>
+      <stop offset="100%" stop-color="#fb7185" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ear-{{ uid|default('x') }}" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#fde7ef"/>
+      <stop offset="100%" stop-color="#f9a8d4"/>
+    </linearGradient>
+    <filter id="soft-{{ uid|default('x') }}" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur stdDeviation="1.2"/>
+    </filter>
+  </defs>
+
+  <!-- 그림자 -->
+  <ellipse cx="110" cy="200" rx="58" ry="8" fill="#f9a8d4" opacity=".35"/>
+
+  <!-- 왼쪽 귀 -->
+  <g transform="translate(70 36) rotate(-12)">
+    <path d="M0 0 Q-8 50 0 88 Q14 92 22 56 Q22 24 10 0 Z" fill="url(#ear-{{ uid|default('x') }})" stroke="#f472b6" stroke-width="2"/>
+    <path d="M4 14 Q-2 50 6 80" fill="none" stroke="#fb7185" stroke-width="3" opacity=".55"/>
+  </g>
+  <!-- 오른쪽 귀 -->
+  <g transform="translate(150 36) rotate(12)">
+    <path d="M0 0 Q8 50 0 88 Q-14 92 -22 56 Q-22 24 -10 0 Z" fill="url(#ear-{{ uid|default('x') }})" stroke="#f472b6" stroke-width="2"/>
+    <path d="M-4 14 Q2 50 -6 80" fill="none" stroke="#fb7185" stroke-width="3" opacity=".55"/>
+  </g>
+
+  <!-- 머리/몸 -->
+  <circle cx="110" cy="120" r="64" fill="url(#bunnyBody-{{ uid|default('x') }})" stroke="#f9a8d4" stroke-width="2"/>
+
+  <!-- 볼터치 -->
+  <circle cx="74" cy="135" r="11" fill="url(#cheek-{{ uid|default('x') }})"/>
+  <circle cx="146" cy="135" r="11" fill="url(#cheek-{{ uid|default('x') }})"/>
+
+  <!-- 눈 (깜빡임 애니메이션) -->
+  <g fill="#1f1937">
+    <ellipse cx="90" cy="115" rx="5" ry="7">
+      <animate attributeName="ry" values="7;7;0.6;7;7" keyTimes="0;.45;.5;.55;1" dur="4.5s" repeatCount="indefinite"/>
+    </ellipse>
+    <ellipse cx="130" cy="115" rx="5" ry="7">
+      <animate attributeName="ry" values="7;7;0.6;7;7" keyTimes="0;.45;.5;.55;1" dur="4.5s" repeatCount="indefinite"/>
+    </ellipse>
+    <!-- 눈 하이라이트 -->
+    <circle cx="92" cy="112" r="1.6" fill="#fff"/>
+    <circle cx="132" cy="112" r="1.6" fill="#fff"/>
+  </g>
+
+  <!-- 코 -->
+  <path d="M110 128 q-5 -2 -6 4 q6 5 12 0 q-1 -6 -6 -4 z" fill="#fb7185"/>
+  <!-- 입 -->
+  <path d="M110 135 q-6 8 -12 4 M110 135 q6 8 12 4" fill="none" stroke="#9d174d" stroke-width="2.2" stroke-linecap="round"/>
+
+  <!-- 하트 -->
+  <g transform="translate(110 78)">
+    <path d="M0 6 q-10 -16 -16 -2 q-2 8 16 18 q18 -10 16 -18 q-6 -14 -16 2 z" fill="#fb7185" filter="url(#soft-{{ uid|default('x') }})">
+      <animateTransform attributeName="transform" type="scale" values="1;1.18;1" keyTimes="0;.5;1" dur="1.6s" repeatCount="indefinite" additive="sum"/>
+    </path>
+  </g>
+</svg>

@@ -1,0 +1,25 @@
+# env & secrets
+.env
+.env.local
+
+# runtime data
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+uploads/
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# editor
+.vscode/
+.idea/
+*.swp
+
+# logs
+*.log

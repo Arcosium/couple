@@ -1,0 +1,15 @@
+[Unit]
+Description=cloudflared couple tunnel (couple.ai-ve.uk -> localhost:8800)
+After=network.target
+
+[Service]
+Type=simple
+# 이 ExecStart 의 --token 값은 Cloudflare 대시보드에서 발급받은 터널 토큰으로 교체!
+# (Zero Trust → Networks → Tunnels → couple-tunnel → 'Install connector' 카드의 토큰)
+ExecStart=/usr/bin/cloudflared --no-autoupdate tunnel run --token REPLACE_WITH_TUNNEL_TOKEN
+Restart=always
+RestartSec=5
+User=opc
+
+[Install]
+WantedBy=multi-user.target

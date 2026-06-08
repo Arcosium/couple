@@ -1,0 +1,25 @@
+[Unit]
+Description=couple.ai-ve.uk — 2인 전용 커플 앱 (FastAPI)
+After=network-online.target
+Wants=network-online.target
+# 무한 재시작 (사이트가 조용히 죽어 있는 것보다 RestartSec 으로 끊임없이 재시도하는 게 낫다)
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=opc
+Group=opc
+WorkingDirectory=/home/opc/projects/couple
+# .env 는 app/config.py 가 절대경로로 load_dotenv 하므로 systemd EnvironmentFile 불필요.
+# (/home 아래 EnvironmentFile 은 SELinux Enforcing 가 init_t 의 읽기를 막아 Permission denied 로 죽음 — vcnews 와 동일 패턴)
+ExecStart=/usr/bin/python3.11 -m uvicorn server:app --host 127.0.0.1 --port 8800 --proxy-headers --forwarded-allow-ips=*
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=couple
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/opc/.local/bin
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

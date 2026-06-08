@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- AppCompat 미사용: 플랫폼 Material 테마로 충분 (ComponentActivity 호환).
+         windowBackground = 스플래시(로고). WebView 로드되면 그 위를 덮는다. -->
+    <style name="Theme.Couple" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@drawable/splash</item>
+        <item name="android:statusBarColor">@color/couple_pink</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

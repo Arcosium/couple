@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- manifest.webmanifest 의 theme/background 와 동일 톤 -->
+    <color name="couple_pink">#FB7185</color>
+    <color name="couple_bg">#FFF1F3</color>
+    <color name="icon_bg">#FFE4E9</color>
+</resources>

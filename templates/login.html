@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<meta name="theme-color" content="#fda4af" />
+<title>우리만의 공간 · couple.ai-ve.uk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: {
+          sans: ['Pretendard Variable','Pretendard','-apple-system','sans-serif'],
+          display: ['"Gowun Dodum"','Pretendard','sans-serif'],
+        },
+      }
+    }
+  }
+</script>
+<style>
+  body { font-family:'Pretendard Variable','Pretendard',-apple-system,sans-serif; }
+  .display { font-family:'Gowun Dodum',sans-serif; }
+  /* 하트 떠다니는 배경 */
+  @keyframes float-up {
+    0%   { transform: translateY(0)    scale(.6) rotate(-20deg); opacity:0; }
+    10%  { opacity:.6; }
+    100% { transform: translateY(-110vh) scale(1.1) rotate(20deg); opacity:0; }
+  }
+  .floaty {
+    position: absolute; bottom:-40px;
+    animation: float-up 12s linear infinite;
+    user-select:none; pointer-events:none;
+  }
+  /* 카드 입장 */
+  @keyframes pop {
+    from { opacity:0; transform: translateY(20px) scale(.97); }
+    to   { opacity:1; transform: translateY(0)    scale(1); }
+  }
+  .pop-in { animation: pop .7s cubic-bezier(.2,.9,.3,1.3) both; }
+  /* 토끼가 살짝 흔들 */
+  @keyframes sway {
+    0%,100% { transform: translateY(0) rotate(-1.5deg); }
+    50%     { transform: translateY(-4px) rotate(1.5deg); }
+  }
+  .sway { animation: sway 3.4s ease-in-out infinite; transform-origin: 50% 90%; }
+  .glow {
+    box-shadow: 0 30px 60px -20px rgba(244,114,182,.4),
+                0 10px 30px -10px rgba(168,85,247,.25),
+                inset 0 1px 0 rgba(255,255,255,.7);
+  }
+  input.code { letter-spacing:.6em; text-align:center; font-weight:700; font-size:1.6rem; }
+  .grain::before {
+    content:""; position:absolute; inset:0; pointer-events:none;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 .9  0 0 0 0 .95  0 0 0 .07 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+    mix-blend-mode:multiply; opacity:.35;
+  }
+</style>
+</head>
+<body class="min-h-screen overflow-hidden bg-gradient-to-br from-rose-100 via-pink-50 to-amber-50">
+
+<!-- 떠다니는 하트들 -->
+<div aria-hidden="true" class="fixed inset-0 pointer-events-none">
+  <span class="floaty text-3xl"  style="left:5%;  animation-delay:0s">💗</span>
+  <span class="floaty text-2xl"  style="left:15%; animation-delay:2s">💞</span>
+  <span class="floaty text-4xl"  style="left:30%; animation-delay:4s">💖</span>
+  <span class="floaty text-xl"   style="left:48%; animation-delay:1s">🌸</span>
+  <span class="floaty text-3xl"  style="left:62%; animation-delay:6s">💗</span>
+  <span class="floaty text-2xl"  style="left:78%; animation-delay:3s">🫧</span>
+  <span class="floaty text-3xl"  style="left:92%; animation-delay:5s">💕</span>
+</div>
+
+<div class="relative grain min-h-screen flex items-center justify-center px-5 py-10">
+  <main class="pop-in relative w-full max-w-md bg-white/70 backdrop-blur-2xl rounded-[2.2rem] p-7 sm:p-9 glow ring-1 ring-white/60">
+    <!-- 토끼 마스코트 -->
+    <div class="flex justify-center -mt-16 mb-3">
+      <div class="sway">
+        {% include "_mascot_bunny.svg" %}
+      </div>
+    </div>
+
+    <h1 class="display text-center text-3xl sm:text-4xl text-rose-600 mb-1">우리만의 공간</h1>
+    <p class="text-center text-rose-700/70 text-sm mb-7">
+      코코🐰가 두 사람만 들여보내줄게.
+    </p>
+
+    <div x-data="loginForm()" class="space-y-5">
+      <!-- step 1: email -->
+      <template x-if="step==='email'">
+        <form @submit.prevent="requestCode" class="space-y-4">
+          <label class="block">
+            <span class="block text-sm font-medium text-rose-900/80 mb-1.5">이메일</span>
+            <input type="email" x-model="email" required autocomplete="email"
+              placeholder="your@email.com"
+              class="w-full bg-white/80 rounded-2xl px-4 py-3.5 ring-1 ring-rose-200 focus:ring-2 focus:ring-rose-400 outline-none text-rose-900 placeholder:text-rose-300 transition" />
+          </label>
+          <button type="submit" :disabled="loading"
+            class="w-full bg-gradient-to-br from-rose-400 to-pink-500 hover:from-rose-500 hover:to-pink-600 text-white font-semibold py-3.5 rounded-2xl shadow-lg shadow-rose-300/40 active:scale-[.98] transition disabled:opacity-50">
+            <span x-show="!loading">💌 인증 코드 받기</span>
+            <span x-show="loading">전송 중…</span>
+          </button>
+          <p class="text-xs text-rose-700/60 text-center">
+            허락된 두 이메일만 들어올 수 있어요.
+          </p>
+        </form>
+      </template>
+
+      <!-- step 2: code -->
+      <template x-if="step==='code'">
+        <form @submit.prevent="verifyCode" class="space-y-4">
+          <p class="text-sm text-rose-800/80 bg-rose-100/60 rounded-2xl px-4 py-3">
+            <span x-text="email"></span> 으로 6자리 코드를 보냈어!
+            <template x-if="channel==='console'">
+              <span class="block mt-1 text-rose-600 text-xs">
+                (SMTP 미설정 — 서버 로그 <code>journalctl -u couple</code> 에서 확인)
+              </span>
+            </template>
+          </p>
+          <input type="text" inputmode="numeric" maxlength="6" pattern="[0-9]{6}"
+            x-model="code" required autofocus
+            class="code w-full bg-white/80 rounded-2xl px-4 py-4 ring-1 ring-rose-200 focus:ring-2 focus:ring-rose-400 outline-none text-rose-900" placeholder="······" />
+          <button type="submit" :disabled="loading || code.length<6"
+            class="w-full bg-gradient-to-br from-rose-500 to-fuchsia-500 text-white font-semibold py-3.5 rounded-2xl shadow-lg shadow-rose-300/40 active:scale-[.98] transition disabled:opacity-50">
+            <span x-show="!loading">💖 들어가기</span>
+            <span x-show="loading">확인 중…</span>
+          </button>
+          <button type="button" @click="step='email'; code=''"
+            class="w-full text-rose-600 text-sm py-1 hover:underline">
+            이메일 다시 입력
+          </button>
+        </form>
+      </template>
+
+      <p x-show="error" x-text="error"
+        class="text-rose-700 bg-rose-100 rounded-xl px-3 py-2 text-sm text-center"></p>
+    </div>
+
+    <p class="mt-7 text-center text-[11px] text-rose-700/40">
+      © couple.ai-ve.uk — 둘만을 위한 작은 공간
+    </p>
+  </main>
+</div>
+
+<!-- Alpine.js self-hosted (CDN 컴프로마이즈 회피). Tailwind Play CDN 은 동적 컴파일이라 SRI 불가 → 프로덕션화 시 정적 빌드로 교체 가능. -->
+<script src="/static/js/alpine.min.js" defer></script>
+<script>
+function loginForm() {
+  return {
+    step: 'email',
+    email: '',
+    code: '',
+    channel: '',
+    loading: false,
+    error: '',
+    async requestCode() {
+      this.error=''; this.loading=true;
+      try {
+        const r = await fetch('/api/auth/request_code', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({email: this.email})
+        });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.detail==='not_allowed'? '허용된 이메일이 아니야 🥺' : '코드 전송 실패');
+        this.channel = j.channel;
+        this.step = 'code';
+      } catch(e) { this.error = e.message; }
+      finally { this.loading=false; }
+    },
+    async verifyCode() {
+      this.error=''; this.loading=true;
+      try {
+        const r = await fetch('/api/auth/verify', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({email: this.email, code: this.code})
+        });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.detail==='invalid_or_expired'? '코드가 틀렸거나 만료됐어' : '로그인 실패');
+        location.href = '/';
+      } catch(e) { this.error = e.message; }
+      finally { this.loading=false; }
+    },
+  }
+}
+</script>
+</body>
+</html>

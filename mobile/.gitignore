@@ -1,0 +1,9 @@
+# Android build artifacts — 자동 백업 커밋에 휩쓸리지 않게.
+.gradle/
+build/
+*/build/
+local.properties
+.idea/
+*.iml
+out/*.apk
+captures/

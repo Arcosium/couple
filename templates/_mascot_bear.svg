@@ -1,0 +1,64 @@
+<svg viewBox="0 0 220 220" width="160" height="160" xmlns="http://www.w3.org/2000/svg" aria-label="코코 곰" role="img">
+  <defs>
+    <radialGradient id="bearBody-{{ uid|default('x') }}" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#fff7ed"/>
+      <stop offset="70%" stop-color="#fde7c8"/>
+      <stop offset="100%" stop-color="#d6a87a"/>
+    </radialGradient>
+    <radialGradient id="bearCheek-{{ uid|default('x') }}" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#fb7185" stop-opacity=".9"/>
+      <stop offset="100%" stop-color="#fb7185" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="bearEar-{{ uid|default('x') }}" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#e0b48c"/>
+      <stop offset="100%" stop-color="#b07d4f"/>
+    </linearGradient>
+    <filter id="bearSoft-{{ uid|default('x') }}" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur stdDeviation="1.2"/>
+    </filter>
+  </defs>
+
+  <!-- 그림자 -->
+  <ellipse cx="110" cy="200" rx="58" ry="8" fill="#b07d4f" opacity=".3"/>
+
+  <!-- 왼쪽 귀 (둥근) -->
+  <circle cx="66" cy="68" r="24" fill="url(#bearEar-{{ uid|default('x') }})" stroke="#a16a40" stroke-width="2"/>
+  <circle cx="66" cy="68" r="11" fill="#fb7185" opacity=".45"/>
+  <!-- 오른쪽 귀 -->
+  <circle cx="154" cy="68" r="24" fill="url(#bearEar-{{ uid|default('x') }})" stroke="#a16a40" stroke-width="2"/>
+  <circle cx="154" cy="68" r="11" fill="#fb7185" opacity=".45"/>
+
+  <!-- 머리/몸 -->
+  <circle cx="110" cy="120" r="64" fill="url(#bearBody-{{ uid|default('x') }})" stroke="#c79468" stroke-width="2"/>
+
+  <!-- 주둥이 -->
+  <ellipse cx="110" cy="140" rx="30" ry="24" fill="#fff7ed" opacity=".85"/>
+
+  <!-- 볼터치 -->
+  <circle cx="72" cy="132" r="11" fill="url(#bearCheek-{{ uid|default('x') }})"/>
+  <circle cx="148" cy="132" r="11" fill="url(#bearCheek-{{ uid|default('x') }})"/>
+
+  <!-- 눈 (깜빡임) -->
+  <g fill="#1f1937">
+    <ellipse cx="90" cy="114" rx="5" ry="7">
+      <animate attributeName="ry" values="7;7;0.6;7;7" keyTimes="0;.45;.5;.55;1" dur="5.1s" repeatCount="indefinite"/>
+    </ellipse>
+    <ellipse cx="130" cy="114" rx="5" ry="7">
+      <animate attributeName="ry" values="7;7;0.6;7;7" keyTimes="0;.45;.5;.55;1" dur="5.1s" repeatCount="indefinite"/>
+    </ellipse>
+    <circle cx="92" cy="111" r="1.6" fill="#fff"/>
+    <circle cx="132" cy="111" r="1.6" fill="#fff"/>
+  </g>
+
+  <!-- 코 -->
+  <ellipse cx="110" cy="132" rx="7" ry="5" fill="#5b3a29"/>
+  <!-- 입 -->
+  <path d="M110 137 q-6 9 -13 5 M110 137 q6 9 13 5" fill="none" stroke="#5b3a29" stroke-width="2.2" stroke-linecap="round"/>
+
+  <!-- 하트 -->
+  <g transform="translate(110 80)">
+    <path d="M0 6 q-10 -16 -16 -2 q-2 8 16 18 q18 -10 16 -18 q-6 -14 -16 2 z" fill="#fb7185" filter="url(#bearSoft-{{ uid|default('x') }})">
+      <animateTransform attributeName="transform" type="scale" values="1;1.18;1" keyTimes="0;.5;1" dur="1.6s" repeatCount="indefinite" additive="sum"/>
+    </path>
+  </g>
+</svg>
