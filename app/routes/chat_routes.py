@@ -18,7 +18,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from ..agent_tools import TOOL_DECLARATIONS, _args_to_dict, execute_tool
-from ..auth import require_user
+from ..auth import require_couple
 from ..config import settings as cfg
 from ..db import cursor, kv_get
 
@@ -84,42 +84,44 @@ class ChatIn(BaseModel):
     session_id: str | None = None
 
 
-def _greeting(user_email: str) -> str:
-    a = kv_get("nickname_a", cfg.nickname_a)
-    b = kv_get("nickname_b", cfg.nickname_b)
-    target = a if user_email == (cfg.allowed_emails[0] if cfg.allowed_emails else "") else b
+def _greeting(couple_id: int, user_email: str) -> str:
+    a = kv_get(couple_id, "nickname_a", cfg.nickname_a)
+    b = kv_get(couple_id, "nickname_b", cfg.nickname_b)
+    from ..db import couple_members
+    members = couple_members(couple_id)
+    target = a if members and user_email == members[0] else b
     hour = datetime.now(KST).hour          # KST 기준으로 아침/점심/오후/저녁/밤 판정
     if 5 <= hour < 11: t = "아침"
     elif 11 <= hour < 14: t = "점심"
     elif 14 <= hour < 18: t = "오후"
     elif 18 <= hour < 22: t = "저녁"
     else: t = "밤"
-    emoji = MASCOT_EMOJI.get(kv_get("mascot", "bunny"), "🐰")   # 현재 마스코트에 맞춰
+    emoji = MASCOT_EMOJI.get(kv_get(couple_id, "mascot", "bunny"), "🐰")   # 현재 마스코트에 맞춰
     return (f"{target}야~ {t}이네 {emoji} 오늘 뭐 하고 싶어?\n"
             f"(맛집·일정·버킷 같은 거 말로만 시켜도 내가 앱에 바로 넣어줄게)")
 
 
-def _load_history(session_id: str, limit: int = 12) -> list[dict]:
+def _load_history(couple_id: int, session_id: str, limit: int = 12) -> list[dict]:
     with cursor() as cur:
         rows = cur.execute(
-            "SELECT role, content, user_email FROM chat_messages WHERE session_id=? "
-            "ORDER BY created_at DESC LIMIT ?",
-            (session_id, limit),
+            "SELECT role, content, user_email FROM chat_messages "
+            "WHERE couple_id=? AND session_id=? ORDER BY created_at DESC LIMIT ?",
+            (couple_id, session_id, limit),
         ).fetchall()
     return list(reversed([dict(r) for r in rows]))
 
 
-def _save_msg(session_id: str, role: str, content: str, email: str | None) -> None:
+def _save_msg(couple_id: int, session_id: str, role: str, content: str, email: str | None) -> None:
     with cursor() as cur:
         cur.execute(
-            "INSERT INTO chat_messages (id, role, content, session_id, user_email, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO chat_messages (id, role, content, session_id, user_email, created_at, couple_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (secrets.token_urlsafe(8), role, content, session_id, email,
-             datetime.now().isoformat(timespec="seconds")),
+             datetime.now().isoformat(timespec="seconds"), couple_id),
         )
 
 
-async def _ai_turn(user_email: str, history: list[dict], message: str) -> tuple[str, list[str]]:
+async def _ai_turn(user_email: str, couple_id: int, history: list[dict], message: str) -> tuple[str, list[str]]:
     """대화 한 turn 처리 (google-genai SDK + manual function calling).
     반환: (최종 텍스트, 사용된 도구 이름 목록)."""
     if not cfg.gemini_api_key:
@@ -194,7 +196,7 @@ async def _ai_turn(user_email: str, history: list[dict], message: str) -> tuple[
         for fc in fcs:
             name = fc.name
             args = dict(fc.args) if fc.args else {}
-            result = await execute_tool(name, args, user_email)
+            result = await execute_tool(name, args, user_email, couple_id)
             tools_used.append(name)
             print(f"[chat tool] {name}({args}) → {str(result)[:200]}", flush=True)
             response_parts.append(types.Part.from_function_response(
@@ -221,34 +223,34 @@ async def _ai_turn(user_email: str, history: list[dict], message: str) -> tuple[
 
 @router.get("/greeting")
 def greeting(request: Request):
-    email = require_user(request)
-    return {"text": _greeting(email)}
+    email, cid = require_couple(request)
+    return {"text": _greeting(cid, email)}
 
 
 @router.get("/history")
 def history(request: Request, session_id: str = "default"):
-    require_user(request)
-    return _load_history(session_id, limit=80)
+    _email, cid = require_couple(request)
+    return _load_history(cid, session_id, limit=80)
 
 
 @router.post("/send")
 async def send(body: ChatIn, request: Request):
-    email = require_user(request)
+    email, cid = require_couple(request)
     msg = (body.message or "").strip()
     if not msg:
         raise HTTPException(status_code=400, detail="empty")
     sid = (body.session_id or "default")[:64]
-    _save_msg(sid, "user", msg, email)
+    _save_msg(cid, sid, "user", msg, email)
     # 컨텍스트로 보낼 직전까지의 기록 (방금 user 메시지 제외)
-    hist = _load_history(sid, limit=12)[:-1]
-    reply, tools = await _ai_turn(email, hist, msg)
-    _save_msg(sid, "assistant", reply, None)
+    hist = _load_history(cid, sid, limit=12)[:-1]
+    reply, tools = await _ai_turn(email, cid, hist, msg)
+    _save_msg(cid, sid, "assistant", reply, None)
     return {"reply": reply, "tools_used": tools}
 
 
 @router.delete("/history")
 def clear(request: Request, session_id: str = "default"):
-    require_user(request)
+    _email, cid = require_couple(request)
     with cursor() as cur:
-        cur.execute("DELETE FROM chat_messages WHERE session_id=?", (session_id,))
+        cur.execute("DELETE FROM chat_messages WHERE couple_id=? AND session_id=?", (cid, session_id))
     return {"ok": True}
