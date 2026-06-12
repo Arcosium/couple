@@ -20,6 +20,9 @@ StandardError=journal
 SyslogIdentifier=couple
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/opc/.local/bin
 Environment=PYTHONUNBUFFERED=1
+# 멀티유저 개방: 앱 화이트리스트 해제 → 유일한 게이트는 Cloudflare Access(현재 2이메일,
+# 추후 전체 이메일+OTP 로 확대 예정). CF Access 는 절대 끄지 말 것(끄면 헤더 위조 fail-open).
+Environment=OPEN_SIGNUP=1
 
 [Install]
 WantedBy=multi-user.target
