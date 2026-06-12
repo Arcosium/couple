@@ -8,7 +8,7 @@ from itsdangerous import URLSafeSerializer, BadSignature
 from .config import settings
 from .db import cursor
 
-SESSION_COOKIE = "couple_session"
+SESSION_COOKIE = settings.session_cookie
 # Cloudflare Access 가 인증을 통과시킬 때 origin 요청에 붙여주는 신원 헤더.
 # Access 활성 상태에선 CF 가 이 값을 강제로 덮어쓰므로(클라이언트 위조 무시)
 # origin 이 터널 너머에만 있는 한 신뢰 가능. 이게 사실상의 단일 로그인이다.
