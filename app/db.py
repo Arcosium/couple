@@ -218,19 +218,27 @@ def init_db() -> None:
     _migrate()
 
 
-def kv_get(key: str, default: str | None = None) -> str | None:
+def kv_get(couple_id: int, key: str, default: str | None = None) -> str | None:
     with cursor() as cur:
-        row = cur.execute("SELECT value FROM settings_kv WHERE key=?", (key,)).fetchone()
+        row = cur.execute("SELECT value FROM settings_kv WHERE couple_id=? AND key=?",
+                          (couple_id, key)).fetchone()
         return row["value"] if row else default
 
 
-def kv_set(key: str, value: str) -> None:
+def kv_set(couple_id: int, key: str, value: str) -> None:
     with cursor() as cur:
         cur.execute(
-            "INSERT INTO settings_kv (key, value) VALUES (?, ?) "
-            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            (key, value),
+            "INSERT INTO settings_kv (couple_id, key, value) VALUES (?, ?, ?) "
+            "ON CONFLICT(couple_id, key) DO UPDATE SET value=excluded.value",
+            (couple_id, key, value),
         )
+
+
+def couple_members(couple_id: int) -> list[str]:
+    with cursor() as cur:
+        row = cur.execute("SELECT member_a, member_b FROM couples WHERE id=?",
+                          (couple_id,)).fetchone()
+    return [row["member_a"], row["member_b"]] if row else []
 
 
 init_db()
