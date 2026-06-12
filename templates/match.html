@@ -1,3 +1,88 @@
-<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>커플 맺기</title></head>
-<body><h1>아직 둘이 되기 전이에요</h1><button>커플 초대하기</button>
-<!-- Phase 6 에서 완성 --></body></html>
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<meta name="theme-color" content="#fda4af" />
+<title>커플 맺기 · couple.ai-ve.uk</title>
+<link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<style> body{font-family:'Pretendard Variable','Pretendard',-apple-system,sans-serif;} </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-rose-100 via-pink-50 to-amber-50">
+<div class="min-h-screen flex items-center justify-center px-5 py-10">
+  <main class="w-full max-w-md bg-white/80 backdrop-blur-2xl rounded-[2rem] p-7 shadow-xl ring-1 ring-white/60"
+        x-data="matchApp()" x-init="load()">
+    <div class="flex justify-center -mt-14 mb-2"><div>{% include "_mascot_bunny.svg" %}</div></div>
+    <h1 class="text-center text-2xl text-rose-600 font-bold mb-1">아직 둘이 되기 전이에요</h1>
+    <p class="text-center text-rose-700/70 text-sm mb-5">상대의 이메일로 초대하거나, 받은 초대를 수락해 주세요.</p>
+
+    <form @submit.prevent="invite" class="space-y-3 mb-6">
+      <input type="email" x-model="email" required placeholder="상대 이메일"
+        class="w-full bg-white rounded-2xl px-4 py-3 ring-1 ring-rose-200 focus:ring-2 focus:ring-rose-400 outline-none" />
+      <button class="w-full bg-gradient-to-br from-rose-400 to-pink-500 text-white font-semibold py-3 rounded-2xl active:scale-[.98]">💌 커플 초대하기</button>
+    </form>
+
+    <template x-if="incoming.length">
+      <div class="mb-5">
+        <h2 class="text-sm font-semibold text-rose-900/70 mb-2">받은 초대</h2>
+        <template x-for="i in incoming" :key="i.id">
+          <div class="flex items-center justify-between bg-rose-50 rounded-2xl px-4 py-3 mb-2">
+            <span class="text-rose-800 text-sm" x-text="i.inviter_email"></span>
+            <span class="space-x-2">
+              <button @click="accept(i.id)" class="bg-rose-500 text-white text-sm px-3 py-1.5 rounded-xl">수락</button>
+              <button @click="decline(i.id)" class="text-rose-500 text-sm px-2 py-1.5">거절</button>
+            </span>
+          </div>
+        </template>
+      </div>
+    </template>
+
+    <template x-if="outgoing.length">
+      <div class="mb-5">
+        <h2 class="text-sm font-semibold text-rose-900/70 mb-2">보낸 초대</h2>
+        <template x-for="o in outgoing" :key="o.id">
+          <div class="flex items-center justify-between bg-amber-50 rounded-2xl px-4 py-3 mb-2">
+            <span class="text-amber-800 text-sm" x-text="o.invitee_email + ' · 대기중'"></span>
+            <button @click="cancel(o.id)" class="text-amber-600 text-sm px-2 py-1.5">취소</button>
+          </div>
+        </template>
+      </div>
+    </template>
+
+    <p x-show="msg" x-text="msg" class="text-rose-700 bg-rose-100 rounded-xl px-3 py-2 text-sm text-center mb-3"></p>
+    <button @click="logout" class="w-full text-rose-600 text-sm py-2 hover:underline">로그아웃</button>
+  </main>
+</div>
+<script src="/static/js/alpine.min.js" defer></script>
+<script>
+function matchApp(){
+  return {
+    email:'', incoming:[], outgoing:[], msg:'',
+    async load(){
+      const j = await (await fetch('/api/couple/invites')).json();
+      this.incoming = j.incoming||[]; this.outgoing = j.outgoing||[];
+    },
+    _err(d){ return ({cannot_invite_self:'자기 자신은 초대할 수 없어요',
+      invitee_already_matched:'상대가 이미 다른 커플이에요', already_matched:'이미 커플이에요',
+      duplicate_invite:'이미 초대를 보냈어요', bad_email:'이메일을 확인해 주세요'})[d] || '오류가 났어요'; },
+    async invite(){
+      this.msg='';
+      const r = await fetch('/api/couple/invite',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({email:this.email})});
+      const j = await r.json();
+      if(!r.ok){ this.msg=this._err(j.detail); return; }
+      this.email=''; await this.load(); this.msg='초대를 보냈어요 💌';
+    },
+    async accept(id){
+      const r = await fetch(`/api/couple/invites/${id}/accept`,{method:'POST'});
+      if(r.ok){ location.href='/'; } else { this.msg='수락 실패'; }
+    },
+    async decline(id){ await fetch(`/api/couple/invites/${id}/decline`,{method:'POST'}); this.load(); },
+    async cancel(id){ await fetch(`/api/couple/invites/${id}/cancel`,{method:'POST'}); this.load(); },
+    async logout(){ await fetch('/api/auth/logout',{method:'POST'}); location.href='/'; },
+  };
+}
+</script>
+</body>
+</html>
