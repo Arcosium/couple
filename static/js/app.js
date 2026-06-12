@@ -131,7 +131,7 @@ function appState() {
     geocoder: null,
     placesService: null,
     _markerImgCache: {},
-    kakaoImport: { open: false },        // 카카오맵 폴더 가져오기(모달은 Phase 7)
+    kakaoImport: { open:false, url:'', items:[], picked:[], kind:'wishlist', loading:false, msg:'' },   // 카카오맵 폴더 가져오기
 
     chat: { messages: [], input: '', thinking: false, sessionId: 'default' },
     chatGreeting: '안녕~ 🐰 둘이 오늘 뭐 할지 알려줘봐!',
@@ -288,6 +288,27 @@ function appState() {
     async unlinkCouple() {
       const r = await fetch('/api/couple/unlink', { method: 'POST' });
       if (r.ok) location.href = '/';
+    },
+    async kakaoPreview(){
+      this.kakaoImport.loading=true; this.kakaoImport.msg='';
+      try{
+        const r = await fetch('/api/places/import/kakao',{method:'POST',
+          headers:{'Content-Type':'application/json'},body:JSON.stringify({url:this.kakaoImport.url})});
+        const j = await r.json();
+        if(!r.ok){ this.kakaoImport.msg = j.detail==='no_places_parsed'?'장소를 못 읽었어요 (공유 링크 확인)':'가져오기 실패'; return; }
+        this.kakaoImport.items = j.items;
+        this.kakaoImport.picked = j.items.map((_,i)=>i);
+      } finally { this.kakaoImport.loading=false; }
+    },
+    async kakaoConfirm(){
+      const sel = this.kakaoImport.picked.map(i=>this.kakaoImport.items[i]);
+      const r = await fetch('/api/places/import/kakao/confirm',{method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({items:sel, kind:this.kakaoImport.kind})});
+      const j = await r.json();
+      this.kakaoImport.msg = `${j.added}곳 추가됐어요 📍`;
+      this.kakaoImport.open=false;
+      if(this.refreshPlaces) this.refreshPlaces();
     },
     /* ── D-day ──────────────────────────────────────────── */
     async loadDDay() {
