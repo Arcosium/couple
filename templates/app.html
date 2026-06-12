@@ -607,6 +607,34 @@
   </div>
 </div>
 
+<!-- ───── 모달: 카카오맵 폴더 가져오기 ───── -->
+<div x-show="kakaoImport.open" x-cloak class="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" @click.self="kakaoImport.open=false">
+  <div class="bg-white rounded-2xl p-5 w-full max-w-md max-h-[85vh] overflow-auto">
+    <h3 class="font-bold text-rose-600 mb-3">카카오맵 폴더 가져오기</h3>
+    <p class="text-xs text-gray-500 mb-2">카카오맵 앱에서 저장 폴더를 공유 → 링크를 붙여넣어 주세요.</p>
+    <input x-model="kakaoImport.url" placeholder="https://kko.kakao.com/..." class="w-full ring-1 ring-rose-200 rounded-xl px-3 py-2 mb-2">
+    <button @click="kakaoPreview" :disabled="kakaoImport.loading" class="w-full bg-rose-500 text-white py-2 rounded-xl mb-3" x-text="kakaoImport.loading?'불러오는 중…':'미리보기'"></button>
+    <template x-if="kakaoImport.items.length">
+      <div>
+        <div class="space-y-1 mb-3">
+          <template x-for="(it,i) in kakaoImport.items" :key="i">
+            <label class="flex items-center gap-2 text-sm">
+              <input type="checkbox" :value="i" x-model.number="kakaoImport.picked">
+              <span x-text="it.name"></span>
+            </label>
+          </template>
+        </div>
+        <select x-model="kakaoImport.kind" class="w-full ring-1 ring-rose-200 rounded-xl px-3 py-2 mb-2">
+          <option value="wishlist">가볼곳</option><option value="visited">가본곳</option><option value="revisit">또갈곳</option>
+        </select>
+        <button @click="kakaoConfirm" class="w-full bg-rose-600 text-white py-2 rounded-xl">선택한 곳 추가</button>
+      </div>
+    </template>
+    <p x-show="kakaoImport.msg" x-text="kakaoImport.msg" class="text-rose-600 text-sm mt-2"></p>
+    <button @click="kakaoImport.open=false" class="w-full text-gray-500 text-sm mt-3">닫기</button>
+  </div>
+</div>
+
 <!-- ───── 모달: 사진 다중 장소변경 ───── -->
 <div x-show="bulkPlaceForm.open" x-transition.opacity class="fixed inset-0 z-50 modal-bg grid place-items-center p-4" @click.self="bulkPlaceForm.open=false">
   <form @submit.prevent="submitBulkPlace()" class="glass-strong rounded-3xl p-5 w-full max-w-sm space-y-3 rise">
