@@ -37,8 +37,12 @@ def test_empty_or_invalid_returns_none():
 def test_dday_endpoint_includes_both_birthdays():
     from fastapi.testclient import TestClient
     from server import app
+    from app.config import settings
 
-    r = TestClient(app).get("/api/settings/dday")
+    r = TestClient(app).get(
+        "/api/settings/dday",
+        headers={"Cf-Access-Authenticated-User-Email": settings.allowed_emails[0]},
+    )
     body = r.json()
     assert "birthdays" in body
     by_who = {b["who"]: b for b in body["birthdays"]}
