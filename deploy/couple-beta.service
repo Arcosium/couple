@@ -1,0 +1,25 @@
+[Unit]
+Description=couple BETA (beta.couple.ai-ve.uk — 멀티커플 테스트, FastAPI)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=opc
+Group=opc
+WorkingDirectory=/home/opc/projects/couple-beta
+ExecStart=/usr/bin/python3.11 -m uvicorn server:app --host 127.0.0.1 --port 8801 --proxy-headers --forwarded-allow-ips=*
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=couple-beta
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/opc/.local/bin
+Environment=PYTHONUNBUFFERED=1
+Environment=COUPLE_DB=/home/opc/projects/couple-beta/data/couple_beta.db
+Environment=SESSION_COOKIE=couple_beta_session
+Environment=OPEN_SIGNUP=1
+
+[Install]
+WantedBy=multi-user.target
