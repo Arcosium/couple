@@ -131,6 +131,7 @@ function appState() {
     geocoder: null,
     placesService: null,
     _markerImgCache: {},
+    kakaoImport: { open: false },        // 카카오맵 폴더 가져오기(모달은 Phase 7)
 
     chat: { messages: [], input: '', thinking: false, sessionId: 'default' },
     chatGreeting: '안녕~ 🐰 둘이 오늘 뭐 할지 알려줘봐!',
@@ -283,6 +284,10 @@ function appState() {
     logout() {
       // Cloudflare Access 세션을 종료한다(앱 자체 쿠키만 지워선 헤더로 즉시 재인증됨).
       location.href = '/cdn-cgi/access/logout';
+    },
+    async unlinkCouple() {
+      const r = await fetch('/api/couple/unlink', { method: 'POST' });
+      if (r.ok) location.href = '/';
     },
     /* ── D-day ──────────────────────────────────────────── */
     async loadDDay() {
