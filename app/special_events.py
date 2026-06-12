@@ -32,60 +32,65 @@ def _yearly(base: date, year: int) -> date:
         return base.replace(year=year, month=2, day=28)
 
 
-def _upsert(eid: str, title: str, due: date, color: str) -> int:
-    """없으면 INSERT(1), 이미 있으면 그대로(0). 멱등 보장의 핵심."""
+def _upsert(couple_id: int, eid: str, title: str, due: date, color: str) -> int:
+    """없으면 INSERT(1), 이미 있으면 그대로(0). 멱등 보장의 핵심.
+    events.id 는 전역 PK 이므로 커플별로 `c{couple_id}-` 네임스페이스를 붙인다."""
+    eid = f"c{couple_id}-{eid}"
     with cursor() as cur:
-        if cur.execute("SELECT 1 FROM events WHERE id=?", (eid,)).fetchone():
+        if cur.execute("SELECT 1 FROM events WHERE id=? AND couple_id=?",
+                       (eid, couple_id)).fetchone():
             return 0
         cur.execute(
             "INSERT INTO events (id, title, due, time, note, color, source, done, "
-            "reminder_minutes, owner_email, created_at) "
-            "VALUES (?, ?, ?, NULL, NULL, ?, 'auto', 0, NULL, '', ?)",
-            (eid, title, due.isoformat(), color,
+            "reminder_minutes, owner_email, couple_id, created_at) "
+            "VALUES (?, ?, ?, NULL, NULL, ?, 'auto', 0, NULL, '', ?, ?)",
+            (eid, title, due.isoformat(), color, couple_id,
              datetime.now().strftime("%Y-%m-%d %H:%M")),
         )
     return 1
 
 
-def clear_auto(prefix: str) -> None:
+def clear_auto(couple_id: int, prefix: str) -> None:
     """특정 종류의 자동 일정을 모두 삭제(예: 'auto-mile-', 'auto-bday-a-').
     기념일/생일 날짜가 바뀌어 옛 자동 일정이 어긋났을 때 재생성 전에 호출."""
     with cursor() as cur:
-        cur.execute("DELETE FROM events WHERE source='auto' AND id LIKE ?", (prefix + "%",))
+        cur.execute("DELETE FROM events WHERE couple_id=? AND source='auto' AND id LIKE ?",
+                    (couple_id, f"c{couple_id}-{prefix}%"))
 
 
-def ensure_special_events(today: date | None = None) -> int:
+def ensure_special_events(couple_id: int, today: date | None = None) -> int:
     """다가오는 기념일·생일·마일스톤 캘린더 일정을 보장. 생성한 개수 반환."""
     today = today or date.today()
     horizon = today + timedelta(days=_HORIZON_DAYS)
     created = 0
 
-    start = _parse(kv_get("anniversary_date", cfg.anniversary_date))
+    start = _parse(kv_get(couple_id, "anniversary_date", cfg.anniversary_date))
     if start:
         # 일수 마일스톤 (100일 = days_together 100 = start + 99일)
         for m in MILESTONES:
             d = start + timedelta(days=m - 1)
             if today <= d <= horizon:
-                created += _upsert(f"auto-mile-{m}", f"💞 {m}일", d, "#ec4899")
+                created += _upsert(couple_id, f"auto-mile-{m}", f"💞 {m}일", d, "#ec4899")
         # 연 기념일 (1주년·2주년 …) — 앞으로 5년
         for yr in range(today.year, today.year + 6):
             d = _yearly(start, yr)
             n = yr - start.year
             if n >= 1 and today <= d <= horizon:
-                created += _upsert(f"auto-anniv-{yr}", f"💍 {n}주년", d, "#f43f5e")
+                created += _upsert(couple_id, f"auto-anniv-{yr}", f"💍 {n}주년", d, "#f43f5e")
 
     # 각자 생일 — 앞으로 3년
     for who, bkey, bdef, nkey, ndef in (
         ("a", "birthday_a", cfg.birthday_a, "nickname_a", cfg.nickname_a),
         ("b", "birthday_b", cfg.birthday_b, "nickname_b", cfg.nickname_b),
     ):
-        born = _parse(kv_get(bkey, bdef))
+        born = _parse(kv_get(couple_id, bkey, bdef))
         if not born:
             continue
-        nick = kv_get(nkey, ndef)
+        nick = kv_get(couple_id, nkey, ndef)
         for yr in range(today.year, today.year + 4):
             d = _yearly(born, yr)
             if today <= d <= horizon:
-                created += _upsert(f"auto-bday-{who}-{yr}", f"🎂 {nick} 생일", d, "#f59e0b")
+                created += _upsert(couple_id, f"auto-bday-{who}-{yr}",
+                                   f"🎂 {nick} 생일", d, "#f59e0b")
 
     return created
