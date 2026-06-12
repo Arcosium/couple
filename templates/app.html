@@ -119,20 +119,23 @@
       </button>
     </div>
 
-    <!-- 빠른 액션 그리드 -->
-    <div class="grid grid-cols-4 gap-2 rise rise-delay-1">
-      <button @click="tab='photos'" class="glass rounded-2xl py-3 flex flex-col items-center gap-1">
-        <span class="text-2xl">📷</span><span class="text-[11px] font-medium text-rose-800">추억</span>
-      </button>
-      <button @click="tab='calendar'" class="glass rounded-2xl py-3 flex flex-col items-center gap-1">
-        <span class="text-2xl">📅</span><span class="text-[11px] font-medium text-rose-800">일정</span>
-      </button>
-      <button @click="tab='bucket'" class="glass rounded-2xl py-3 flex flex-col items-center gap-1">
-        <span class="text-2xl">✨</span><span class="text-[11px] font-medium text-rose-800">버킷</span>
-      </button>
-      <button @click="tab='map'" class="glass rounded-2xl py-3 flex flex-col items-center gap-1">
-        <span class="text-2xl">🗺️</span><span class="text-[11px] font-medium text-rose-800">지도</span>
-      </button>
+    <!-- 오늘 한마디 (홈 미니 위젯) — 하단 탭과 중복되던 빠른액션 버튼 자리 -->
+    <div class="glass rounded-3xl p-4 rise rise-delay-1">
+      <div class="flex items-center justify-between mb-2">
+        <p class="font-semibold text-rose-700">오늘 한마디 ✏️</p>
+        <button @click="tab='calendar'; calSelected=today(); loadDayNote()" class="text-xs text-rose-500 hover:underline">캘린더에서 →</button>
+      </div>
+      <template x-if="homeNote.partner">
+        <p class="text-sm bg-rose-50 rounded-2xl px-3 py-2 mb-2">
+          <b class="text-rose-700" x-text="(nicks.partner||'상대')+'님'"></b>
+          <span class="text-rose-900/80 ml-1" x-text="homeNote.partner.content"></span>
+        </p>
+      </template>
+      <div class="flex gap-2">
+        <input x-model="homeNote.mine" @keydown.enter="saveHomeNote()"
+          placeholder="오늘 뭐 했어?" class="input flex-1" />
+        <button @click="saveHomeNote()" class="btn btn-soft px-3 text-sm shrink-0">저장</button>
+      </div>
     </div>
 
     <!-- 통계 -->
@@ -309,6 +312,23 @@
           </li>
         </template>
       </ul>
+    </div>
+
+    <!-- 오늘 한마디 (선택일) -->
+    <div class="glass rounded-3xl p-4">
+      <p class="font-semibold text-rose-700 mb-2"
+        x-text="dayNotes.isAnniv ? '오늘 같이 뭐 했어? 💞' : '오늘 한마디 ✏️'"></p>
+      <template x-if="dayNotes.partner">
+        <p class="text-sm bg-rose-50 rounded-2xl px-3 py-2 mb-2">
+          <b class="text-rose-700" x-text="(nicks.partner||'상대')+'님'"></b>
+          <span class="text-rose-900/80 ml-1" x-text="dayNotes.partner.content"></span>
+        </p>
+      </template>
+      <textarea x-model="dayNotes.mine" rows="2" placeholder="이 날 뭐 했는지 적어줘"
+        class="input w-full"></textarea>
+      <div class="flex justify-end mt-2">
+        <button @click="saveDayNote()" class="btn btn-soft py-1.5 px-3 text-sm">저장</button>
+      </div>
     </div>
   </section>
 
@@ -544,7 +564,7 @@
     <button class="tab-btn" :class="tab==='photos' && 'active'" @click="tab='photos'; refreshPhotos()">
       <span class="ic">📷</span>추억
     </button>
-    <button class="tab-btn" :class="tab==='calendar' && 'active'" @click="tab='calendar'">
+    <button class="tab-btn" :class="tab==='calendar' && 'active'" @click="tab='calendar'; loadDayNote()">
       <span class="ic">📅</span>캘린더
     </button>
     <button class="tab-btn" :class="tab==='bucket' && 'active'" @click="tab='bucket'">
@@ -795,6 +815,27 @@
       <button type="submit" class="btn btn-primary flex-1">저장</button>
     </div>
   </form>
+</div>
+
+<!-- ───── 모달: 온보딩 (신규 커플 만난날짜·생일·닉네임) ───── -->
+<div x-show="onboarding.open" x-cloak
+  class="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-4">
+  <div class="bg-white rounded-2xl p-5 w-full max-w-sm">
+    <h3 class="display text-xl text-rose-600 mb-1">우리 정보 입력 💞</h3>
+    <p class="text-xs text-rose-700/70 mb-4">처음이니까 만난 날짜랑 네 생일을 알려줘. (상대는 본인이 들어와서 입력)</p>
+    <label class="block text-sm text-rose-900/80 mb-2">만난 날짜
+      <input type="date" x-model="onboarding.anniversary" class="input w-full mt-1" />
+    </label>
+    <label class="block text-sm text-rose-900/80 mb-2">내 닉네임
+      <input x-model="onboarding.nickname" placeholder="자기" class="input w-full mt-1" />
+    </label>
+    <label class="block text-sm text-rose-900/80 mb-3">내 생일
+      <input type="date" x-model="onboarding.birthday" class="input w-full mt-1" />
+    </label>
+    <button @click="saveOnboarding()" :disabled="onboarding.saving"
+      class="btn btn-primary w-full py-2.5 disabled:opacity-50">저장하고 시작 💖</button>
+    <button @click="onboarding.open=false" class="w-full text-rose-500 text-xs py-2 mt-1">나중에</button>
+  </div>
 </div>
 
 <script src="/static/js/app.js?v={{ asset_v }}"></script>

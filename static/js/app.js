@@ -114,6 +114,13 @@ function appState() {
     eventForm: { open: false, id: null, title: '', due: today(), end_date: '', time: '', note: '', color: '#ec4899', reminder_minutes: null },
     allEvents: false,                   // 홈 '전체 일정' 모달
 
+    // 오늘 한마디 — 캘린더는 선택일(dayNotes), 홈 위젯은 오늘(homeNote)
+    dayNotes: { mine: '', partner: null, loading: false, isAnniv: false },
+    homeNote: { mine: '', partner: null },
+    // 온보딩 — 신규 커플 만난날짜·생일·닉네임
+    isMemberA: false,
+    onboarding: { open: false, anniversary: '', birthday: '', nickname: '', saving: false },
+
     bucket: [],
     bucketForm: { open: false, id: null, title: '', description: '', icon: '💖', target_date: '' },
 
@@ -267,6 +274,8 @@ function appState() {
       ]);
       this.connectWS();
       this.greetChat();
+      this.loadHomeNote();          // 홈 오늘 한마디
+      this.checkOnboarding();       // 신규 커플이면 만난날짜·생일 입력 유도
       // 알림 권한
       if ('Notification' in window && Notification.permission === 'default') {
         try { Notification.requestPermission(); } catch (_) {}
@@ -278,6 +287,7 @@ function appState() {
       const j = await api('/api/auth/me');
       if (!j.authenticated) { location.href = '/'; return; }
       this.me = j.email;
+      this.isMemberA = !!j.is_member_a;
       this.nicks.self = j.nickname_self || this.nicks.a;
       this.nicks.partner = j.nickname_partner || this.nicks.b;
     },
@@ -420,6 +430,70 @@ function appState() {
         const [y, m] = cell.iso.split('-').map(Number);
         this.cal.year = y; this.cal.month = m - 1;
       }
+      this.loadDayNote();
+    },
+
+    /* ── 오늘 한마디 ─────────────────────────────────────── */
+    async _fetchNote(date) {
+      const j = await api('/api/notes?date=' + encodeURIComponent(date));
+      return { mine: j.mine ? j.mine.content : '', partner: j.partner || null };
+    },
+    _isAnniversary(date) {
+      const a = this.settings.anniversary_date;       // YYYY-MM-DD
+      return !!(a && date && a.slice(5) === date.slice(5));   // 월·일 일치
+    },
+    async loadDayNote() {
+      this.dayNotes.loading = true;
+      try {
+        const n = await this._fetchNote(this.calSelected);
+        this.dayNotes.mine = n.mine;
+        this.dayNotes.partner = n.partner;
+        this.dayNotes.isAnniv = this._isAnniversary(this.calSelected);
+      } finally { this.dayNotes.loading = false; }
+    },
+    async saveDayNote() {
+      await api('/api/notes', { method: 'PUT',
+        body: JSON.stringify({ date: this.calSelected, content: this.dayNotes.mine }) });
+      await this.loadDayNote();
+      if (this.calSelected === today()) Object.assign(this.homeNote, await this._fetchNote(today()));
+      this.pushToast('✏️', '오늘 한마디 저장');
+    },
+    async loadHomeNote() {
+      Object.assign(this.homeNote, await this._fetchNote(today()));
+    },
+    async saveHomeNote() {
+      await api('/api/notes', { method: 'PUT',
+        body: JSON.stringify({ date: today(), content: this.homeNote.mine }) });
+      await this.loadHomeNote();
+      if (this.calSelected === today()) await this.loadDayNote();
+      this.pushToast('✏️', '오늘 한마디 저장');
+    },
+
+    /* ── 온보딩 (만난날짜·생일·닉네임) ───────────────────── */
+    _myBirthdayKey() { return this.isMemberA ? 'birthday_a' : 'birthday_b'; },
+    _myNickKey() { return this.isMemberA ? 'nickname_a' : 'nickname_b'; },
+    checkOnboarding() {
+      const myBday = this.settings[this._myBirthdayKey()];
+      if (!this.settings.anniversary_date || !myBday) {
+        this.onboarding.anniversary = this.settings.anniversary_date || '';
+        this.onboarding.nickname = this.settings[this._myNickKey()] || '';
+        this.onboarding.birthday = myBday || '';
+        this.onboarding.open = true;
+      }
+    },
+    async saveOnboarding() {
+      this.onboarding.saving = true;
+      try {
+        const payload = {};
+        if (this.onboarding.anniversary) payload.anniversary_date = this.onboarding.anniversary;
+        if (this.onboarding.nickname) payload[this._myNickKey()] = this.onboarding.nickname;
+        if (this.onboarding.birthday) payload[this._myBirthdayKey()] = this.onboarding.birthday;
+        await api('/api/settings', { method: 'PATCH', body: JSON.stringify(payload) });
+        await this.loadSettings();
+        await this.loadDDay();
+        this.onboarding.open = false;
+        this.pushToast('💞', '우리 정보 저장됐어');
+      } finally { this.onboarding.saving = false; }
     },
     openEventForm(due) {
       this.eventForm = { open: true, id: null, title: '', due: due || today(), end_date: '', time: '', note: '', color: '#ec4899', reminder_minutes: null };
@@ -1034,6 +1108,10 @@ function appState() {
       } else if (d.kind === 'place_deleted') {
         this.pushToast('🗑️', `장소 삭제됨`, d.name || '');
         this.refreshPlaces();
+      } else if (d.kind === 'note') {
+        this.pushToast('✏️', `${this.nicks.partner}님 오늘 한마디`);
+        if (d.date === today()) this.loadHomeNote();
+        if (d.date === this.calSelected) this.loadDayNote();
       }
     },
 
