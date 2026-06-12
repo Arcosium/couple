@@ -3,7 +3,7 @@ from datetime import datetime
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
-from ..auth import require_user, partner_of
+from ..auth import require_couple, partner_of
 from ..db import cursor
 from ..realtime import hub
 
@@ -29,28 +29,28 @@ class BucketPatch(BaseModel):
 
 @router.get("")
 def list_items(request: Request):
-    require_user(request)
+    _email, cid = require_couple(request)
     with cursor() as cur:
         rows = [dict(r) for r in cur.execute(
-            "SELECT * FROM bucket ORDER BY done ASC, priority DESC, created_at DESC"
-        ).fetchall()]
+            "SELECT * FROM bucket WHERE couple_id=? ORDER BY done ASC, priority DESC, created_at DESC",
+            (cid,)).fetchall()]
     return rows
 
 
 @router.post("")
 async def create(body: BucketIn, request: Request):
-    user = require_user(request)
+    user, cid = require_couple(request)
     bid = str(int(_time.time() * 1000))
     with cursor() as cur:
         cur.execute(
             """INSERT INTO bucket
                (id, title, description, icon, target_date, priority, done,
-                created_at, owner_email)
-               VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)""",
+                created_at, owner_email, couple_id)
+               VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)""",
             (
                 bid, body.title.strip(), body.description,
                 body.icon or "💖", body.target_date, body.priority,
-                datetime.now().isoformat(timespec="seconds"), user,
+                datetime.now().isoformat(timespec="seconds"), user, cid,
             ),
         )
     if (p := partner_of(user)):
@@ -60,7 +60,7 @@ async def create(body: BucketIn, request: Request):
 
 @router.patch("/{bid}")
 async def patch(bid: str, body: BucketPatch, request: Request):
-    user = require_user(request)
+    user, cid = require_couple(request)
     fields = []
     args: list = []
     for key in ("title", "description", "icon", "target_date", "priority"):
@@ -77,8 +77,9 @@ async def patch(bid: str, body: BucketPatch, request: Request):
     if not fields:
         return {"ok": True}
     args.append(bid)
+    args.append(cid)
     with cursor() as cur:
-        cur.execute(f"UPDATE bucket SET {', '.join(fields)} WHERE id=?", args)
+        cur.execute(f"UPDATE bucket SET {', '.join(fields)} WHERE id=? AND couple_id=?", args)
     if body.done and (p := partner_of(user)):
         await hub.send(p, {"kind": "bucket_done", "by": user})
     return {"ok": True}
@@ -86,7 +87,7 @@ async def patch(bid: str, body: BucketPatch, request: Request):
 
 @router.delete("/{bid}")
 def delete(bid: str, request: Request):
-    require_user(request)
+    _email, cid = require_couple(request)
     with cursor() as cur:
-        cur.execute("DELETE FROM bucket WHERE id=?", (bid,))
+        cur.execute("DELETE FROM bucket WHERE id=? AND couple_id=?", (bid, cid))
     return {"ok": True}
