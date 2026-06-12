@@ -117,12 +117,13 @@ class KakaoConfirmIn(BaseModel):
 async def import_kakao(body: KakaoUrlIn, request: Request):
     _email, _cid = require_couple(request)
     try:
-        html = await kakao_import.fetch_folder(body.url)
+        items = await kakao_import.fetch_folder_places(body.url)
     except kakao_import.UnsafeURLError:
         raise HTTPException(status_code=400, detail="bad_url")
+    except kakao_import.KakaoImportError:
+        raise HTTPException(status_code=422, detail="no_places_parsed")
     except Exception:
         raise HTTPException(status_code=400, detail="fetch_failed")
-    items = kakao_import.parse_kakao_folder(html)
     if not items:
         raise HTTPException(status_code=422, detail="no_places_parsed")
     return {"count": len(items), "items": items}
@@ -149,10 +150,10 @@ async def import_kakao_confirm(body: KakaoConfirmIn, request: Request):
             cur.execute(
                 """INSERT INTO places (id, name, address, lat, lng, kind, category, memo,
                    created_at, owner_email, couple_id)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (str(int(_time.time() * 1000)) + str(added), name,
                  it.get("road_address") or "", float(lat), float(lng), body.kind,
-                 it.get("category") or "", datetime.now().isoformat(timespec="seconds"),
-                 user, cid))
+                 it.get("category") or "", (it.get("memo") or ""),
+                 datetime.now().isoformat(timespec="seconds"), user, cid))
             added += 1
     return {"ok": True, "added": added}

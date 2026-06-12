@@ -26,10 +26,11 @@
   (SMTP 미설정이면 코드는 `journalctl -u couple-beta` 로그에 출력)
 - 두 계정으로 초대 → 수락 → 데이터 격리/커플 해제/카카오 가져오기 확인.
 
-## 카카오 가져오기 주의 (미검증 스파이크)
-- 카카오 폴더 공유 페이지의 실제 JSON 구조는 미검증. 실제 공유 링크로 한 번 테스트 후
-  `app/kakao_import.py::parse_kakao_folder` 의 필드 매핑을 실제 구조에 맞춰 조정해야 할 수 있음.
-- SSRF 방어로 **카카오 호스트(kko.to / *.kakao.com)만 허용**. 다른 단축 도메인이면 allowlist 추가 필요.
+## 카카오 가져오기 (검증 완료 2026-06-12)
+- 동작: 공유 링크 → folderid 추출 → `map.kakao.com/favorite/list?folderid=...`(Referer 필수) → 장소 파싱.
+- 비공식 내부 엔드포인트라 카카오가 바꾸면 깨질 수 있음 — 깨지면 `app/kakao_import.py` 의
+  `fetch_folder_places`/`parse_favorites` 만 조정.
+- SSRF 방어로 카카오 호스트(kko.to / *.kakao.com)만 허용.
 
 ## 롤백
     sudo systemctl disable --now couple-beta.service
