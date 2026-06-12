@@ -13,8 +13,6 @@ from urllib.parse import urlparse, urljoin, parse_qs
 
 import httpx
 
-from .config import settings  # noqa: F401  (allowlist 확장 등 향후 사용 여지)
-
 _ALLOWED_EXACT = {"kko.to", "kakao.com"}
 _ALLOWED_SUFFIX = (".kakao.com",)
 _MAX_REDIRECTS = 5
