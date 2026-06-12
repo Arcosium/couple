@@ -96,8 +96,11 @@ def test_kv_is_per_couple():
 
 
 def test_couple_members_returns_both():
+    # 고정 id 는 다른 테스트의 couples AUTOINCREMENT 와 충돌하지 않도록 큰 값을 쓴다
+    # (전체 스위트에서 _match/accept_invite 가 여러 번 돌아 시퀀스가 전진하므로).
+    cid = 900001
     with db.cursor() as cur:
         cur.execute("INSERT OR IGNORE INTO couples (id, member_a, member_b, created_at) "
-                    "VALUES (9, 'x@t', 'y@t', '2026-01-01')")
-    assert set(db.couple_members(9)) == {"x@t", "y@t"}
-    assert db.couple_members(999) == []
+                    "VALUES (?, 'x@t', 'y@t', '2026-01-01')", (cid,))
+    assert set(db.couple_members(cid)) == {"x@t", "y@t"}
+    assert db.couple_members(999999) == []

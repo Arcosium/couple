@@ -118,6 +118,8 @@ async def import_kakao(body: KakaoUrlIn, request: Request):
     _email, _cid = require_couple(request)
     try:
         html = await kakao_import.fetch_folder(body.url)
+    except kakao_import.UnsafeURLError:
+        raise HTTPException(status_code=400, detail="bad_url")
     except Exception:
         raise HTTPException(status_code=400, detail="fetch_failed")
     items = kakao_import.parse_kakao_folder(html)
