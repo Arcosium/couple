@@ -17,9 +17,9 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app.auth import read_session
+from app.auth import read_session, couple_of
 from app.config import settings
-from app.db import kv_get
+from app.db import kv_get, couple_members
 from app.realtime import hub
 from app.routes import (
     auth_routes,
@@ -92,23 +92,31 @@ def _asset_version() -> str:
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
     email = read_session(request)
-    template = "app.html" if email else "login.html"
+    if not email:
+        return templates.TemplateResponse(
+            request, "login.html",
+            {"asset_v": _asset_version()},
+            headers={"Cache-Control": "no-cache, must-revalidate"})
+    cid = couple_of(email)
+    if not cid:
+        return templates.TemplateResponse(
+            request, "match.html",
+            {"email": email, "asset_v": _asset_version()},
+            headers={"Cache-Control": "no-cache, must-revalidate"})
     return templates.TemplateResponse(
-        request,
-        template,
+        request, "app.html",
         {
             "kakao_js_key": settings.kakao_js_key,
-            "anniversary": kv_get("anniversary_date", settings.anniversary_date),
-            "nickname_a": kv_get("nickname_a", settings.nickname_a),
-            "nickname_b": kv_get("nickname_b", settings.nickname_b),
-            "mascot": kv_get("mascot", "bunny"),
-            "theme": kv_get("theme", "rosy"),
-            "email": email or "",
-            "partner_configured": len(settings.allowed_emails) >= 2,
+            "anniversary": kv_get(cid, "anniversary_date", settings.anniversary_date),
+            "nickname_a": kv_get(cid, "nickname_a", settings.nickname_a),
+            "nickname_b": kv_get(cid, "nickname_b", settings.nickname_b),
+            "mascot": kv_get(cid, "mascot", "bunny"),
+            "theme": kv_get(cid, "theme", "rosy"),
+            "email": email,
+            "partner_configured": True,
             "asset_v": _asset_version(),
         },
-        headers={"Cache-Control": "no-cache, must-revalidate"},
-    )
+        headers={"Cache-Control": "no-cache, must-revalidate"})
 
 
 ALLOWED_WS_ORIGINS = {
@@ -160,10 +168,14 @@ async def _reminder_loop():
     while True:
         try:
             now = datetime.now()
-            # 날짜가 바뀌면(또는 첫 루프) 특별일 자동 기록 갱신
+            # 날짜가 바뀌면(또는 첫 루프) 모든 커플의 특별일 자동 기록 갱신
             if last_ensure_day != now.date():
                 try:
-                    ensure_special_events(now.date())
+                    with db_cursor() as cur:
+                        cids = [row["id"] for row in
+                                cur.execute("SELECT id FROM couples").fetchall()]
+                    for cid in cids:
+                        ensure_special_events(cid, now.date())
                     last_ensure_day = now.date()
                 except Exception as exc:
                     print(f"[special_events] error: {exc}")
@@ -189,7 +201,7 @@ async def _reminder_loop():
                         "time": tm,
                         "minutes_to": max(0, int((when - now).total_seconds() / 60)),
                     }
-                    for em in settings.allowed_emails:
+                    for em in couple_members(r["couple_id"]):
                         await hub.send(em, payload)
                     with db_cursor() as cur:
                         cur.execute(
