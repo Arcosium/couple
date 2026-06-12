@@ -16,7 +16,10 @@ class Settings:
     base_dir: Path = BASE_DIR
     data_dir: Path = BASE_DIR / "data"
     uploads_dir: Path = BASE_DIR / "uploads" / "photos"
-    db_path: Path = BASE_DIR / "data" / "couple.db"
+    db_path: Path = Path(os.getenv("COUPLE_DB") or (BASE_DIR / "data" / "couple.db"))
+
+    session_cookie: str = os.getenv("SESSION_COOKIE", "couple_session")
+    open_signup: bool = os.getenv("OPEN_SIGNUP", "").lower() in ("1", "true", "yes")
 
     allowed_emails: list[str] = _emails()
     secret_key: str = os.getenv("SECRET_KEY", "dev-insecure-change-me")
