@@ -173,6 +173,9 @@ def _bootstrap_couple_one() -> None:
             "UNION SELECT 1 FROM pokes WHERE couple_id IS NULL "
             "UNION SELECT 1 FROM chat_messages WHERE couple_id IS NULL LIMIT 1"
         ).fetchone()
+        if not has_one and legacy and len(emails) < 2:
+            print("[migrate] WARNING: 레거시 데이터가 있으나 ALLOWED_EMAILS<2 라 couple #1 미생성 "
+                  "— 데이터가 미매칭으로 남음. ALLOWED_EMAILS 설정 후 재기동 필요.", flush=True)
         if not has_one and legacy and len(emails) >= 2:
             cur.execute("INSERT INTO couples (id, member_a, member_b, created_at) "
                         "VALUES (1, ?, ?, ?)",
@@ -184,6 +187,28 @@ def _bootstrap_couple_one() -> None:
             for em in emails[:2]:
                 cur.execute("INSERT INTO users (email, couple_id) VALUES (?, 1) "
                             "ON CONFLICT(email) DO UPDATE SET couple_id=1", (em,))
+
+
+def _rebuild_settings_kv(cur) -> None:
+    """settings_kv 를 (couple_id, key) 복합키로 멱등·자가복구 전환.
+    Python 3.11 sqlite3 는 DDL 을 즉시 자동커밋하므로 RENAME→CREATE→INSERT→DROP 가 비원자적이다.
+    크래시로 settings_kv(빈 새 테이블) + settings_kv_old(실데이터)가 남는 'torn state' 를
+    다음 기동에서 복구한다."""
+    has_old = cur.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='settings_kv_old'").fetchone()
+    kv_cols = {r["name"] for r in cur.execute("PRAGMA table_info(settings_kv)").fetchall()}
+    if "couple_id" in kv_cols and not has_old:
+        return  # 이미 복합키 + 잔재 없음 → 할 일 없음
+    if not has_old:
+        # 정상 레거시 전환: 현재(단일PK) settings_kv 를 백업으로 rename
+        cur.execute("ALTER TABLE settings_kv RENAME TO settings_kv_old")
+    # 새 복합키 테이블 보장 (torn state 의 빈 테이블이면 버리고 재생성)
+    cur.execute("DROP TABLE IF EXISTS settings_kv")
+    cur.execute("CREATE TABLE settings_kv (couple_id INTEGER NOT NULL, key TEXT NOT NULL, "
+                "value TEXT, PRIMARY KEY (couple_id, key))")
+    cur.execute("INSERT OR IGNORE INTO settings_kv (couple_id, key, value) "
+                "SELECT 1, key, value FROM settings_kv_old")
+    cur.execute("DROP TABLE settings_kv_old")
 
 
 def _migrate() -> None:
@@ -198,17 +223,8 @@ def _migrate() -> None:
         ev_cols = {r["name"] for r in cur.execute("PRAGMA table_info(events)").fetchall()}
         if "end_date" not in ev_cols:
             cur.execute("ALTER TABLE events ADD COLUMN end_date TEXT")
-        # 2) settings_kv 단일PK → (couple_id,key) 복합키 재작성 (멱등)
-        kv_cols = {r["name"] for r in cur.execute("PRAGMA table_info(settings_kv)").fetchall()}
-        if "couple_id" not in kv_cols:
-            cur.execute("ALTER TABLE settings_kv RENAME TO settings_kv_old")
-            cur.execute(
-                "CREATE TABLE settings_kv (couple_id INTEGER NOT NULL, key TEXT NOT NULL, "
-                "value TEXT, PRIMARY KEY (couple_id, key))"
-            )
-            cur.execute("INSERT INTO settings_kv (couple_id, key, value) "
-                        "SELECT 1, key, value FROM settings_kv_old")
-            cur.execute("DROP TABLE settings_kv_old")
+        # 2) settings_kv 단일PK → (couple_id,key) 복합키 재작성 (멱등·자가복구)
+        _rebuild_settings_kv(cur)
     _bootstrap_couple_one()
 
 
