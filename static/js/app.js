@@ -290,6 +290,11 @@ function appState() {
       this.isMemberA = !!j.is_member_a;
       this.nicks.self = j.nickname_self || this.nicks.a;
       this.nicks.partner = j.nickname_partner || this.nicks.b;
+      // 온보딩: 서버가 raw kv(미설정=None)로 판정. 폼은 이미 가진 값으로 프리필.
+      this._needsOnboarding = !!j.needs_onboarding;
+      this.onboarding.anniversary = j.anniversary_raw || '';
+      this.onboarding.birthday = j.my_birthday_raw || '';
+      this.onboarding.nickname = j.nickname_self || '';
     },
     logout() {
       // Cloudflare Access 세션을 종료한다(앱 자체 쿠키만 지워선 헤더로 즉시 재인증됨).
@@ -473,13 +478,8 @@ function appState() {
     _myBirthdayKey() { return this.isMemberA ? 'birthday_a' : 'birthday_b'; },
     _myNickKey() { return this.isMemberA ? 'nickname_a' : 'nickname_b'; },
     checkOnboarding() {
-      const myBday = this.settings[this._myBirthdayKey()];
-      if (!this.settings.anniversary_date || !myBday) {
-        this.onboarding.anniversary = this.settings.anniversary_date || '';
-        this.onboarding.nickname = this.settings[this._myNickKey()] || '';
-        this.onboarding.birthday = myBday || '';
-        this.onboarding.open = true;
-      }
+      // 판정은 서버(loadMe 의 needs_onboarding). 폼은 loadMe 가 raw 값으로 프리필해 둠.
+      if (this._needsOnboarding) this.onboarding.open = true;
     },
     async saveOnboarding() {
       this.onboarding.saving = true;
