@@ -104,7 +104,7 @@
             <span x-show="loading">전송 중…</span>
           </button>
           <p class="text-xs text-rose-700/60 text-center">
-            허락된 두 이메일만 들어올 수 있어요.
+            이메일로 가입하고, 상대를 초대해 둘만의 공간을 만들어요.
           </p>
         </form>
       </template>
@@ -164,7 +164,7 @@ function loginForm() {
           body: JSON.stringify({email: this.email})
         });
         const j = await r.json();
-        if (!r.ok) throw new Error(j.detail==='not_allowed'? '허용된 이메일이 아니야 🥺' : '코드 전송 실패');
+        if (!r.ok) throw new Error(j.detail==='not_allowed'? '잠시 후 다시 시도해 주세요' : '코드 전송 실패');
         this.channel = j.channel;
         this.step = 'code';
       } catch(e) { this.error = e.message; }
