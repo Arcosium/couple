@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from ..auth import require_couple, partner_of
 from ..db import cursor
 from ..realtime import hub
+from .. import kakao_import
 
 router = APIRouter(prefix="/api/places", tags=["places"])
 
@@ -101,3 +102,55 @@ def delete(pid: str, request: Request):
     with cursor() as cur:
         cur.execute("DELETE FROM places WHERE id=? AND couple_id=?", (pid, cid))
     return {"ok": True}
+
+
+class KakaoUrlIn(BaseModel):
+    url: str
+
+
+class KakaoConfirmIn(BaseModel):
+    items: list[dict]
+    kind: str = "wishlist"
+
+
+@router.post("/import/kakao")
+async def import_kakao(body: KakaoUrlIn, request: Request):
+    _email, _cid = require_couple(request)
+    try:
+        html = await kakao_import.fetch_folder(body.url)
+    except Exception:
+        raise HTTPException(status_code=400, detail="fetch_failed")
+    items = kakao_import.parse_kakao_folder(html)
+    if not items:
+        raise HTTPException(status_code=422, detail="no_places_parsed")
+    return {"count": len(items), "items": items}
+
+
+@router.post("/import/kakao/confirm")
+async def import_kakao_confirm(body: KakaoConfirmIn, request: Request):
+    user, cid = require_couple(request)
+    if body.kind not in ("visited", "wishlist", "revisit"):
+        raise HTTPException(status_code=400, detail="bad_kind")
+    added = 0
+    with cursor() as cur:
+        for it in body.items:
+            name = (it.get("name") or "").strip()
+            lat, lng = it.get("lat"), it.get("lng")
+            if not name or lat is None or lng is None:
+                continue
+            dup = cur.execute(
+                "SELECT 1 FROM places WHERE couple_id=? AND name=? "
+                "AND ABS(lat-?)<0.0005 AND ABS(lng-?)<0.0005",
+                (cid, name, lat, lng)).fetchone()
+            if dup:
+                continue
+            cur.execute(
+                """INSERT INTO places (id, name, address, lat, lng, kind, category, memo,
+                   created_at, owner_email, couple_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?)""",
+                (str(int(_time.time() * 1000)) + str(added), name,
+                 it.get("road_address") or "", float(lat), float(lng), body.kind,
+                 it.get("category") or "", datetime.now().isoformat(timespec="seconds"),
+                 user, cid))
+            added += 1
+    return {"ok": True, "added": added}
