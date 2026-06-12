@@ -27,6 +27,7 @@ from app.routes import (
     calendar_routes,
     chat_routes,
     couple_routes,
+    notes_routes,
     photos_routes,
     places_routes,
     poke_routes,
@@ -58,6 +59,7 @@ app.include_router(bucket_routes.router)
 app.include_router(places_routes.router)
 app.include_router(poke_routes.router)
 app.include_router(chat_routes.router)
+app.include_router(notes_routes.router)
 
 
 @app.get("/health")
