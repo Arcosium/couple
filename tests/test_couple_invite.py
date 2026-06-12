@@ -56,6 +56,21 @@ def test_decline_and_cancel():
     assert couples.list_invites("d1@t")["outgoing"] == []
 
 
+def test_double_accept_is_idempotent_no_duplicate_couple():
+    _fresh("f1@t"); _fresh("f2@t")
+    inv = couples.create_invite("f1@t", "f2@t")
+    couples.accept_invite("f2@t", inv["id"])
+    cid = auth.couple_of("f1@t")
+    # 같은 invite 를 다시 수락 시도 → invite_not_found (이미 accepted)
+    with pytest.raises(ValueError):
+        couples.accept_invite("f2@t", inv["id"])
+    # 커플 행이 정확히 1개(중복 생성 없음)
+    with db.cursor() as cur:
+        n = cur.execute("SELECT COUNT(*) AS n FROM couples WHERE member_a='f1@t' AND member_b='f2@t'").fetchone()["n"]
+    assert n == 1
+    assert auth.couple_of("f1@t") == cid
+
+
 def test_unlink_dissolves_couple():
     _fresh("e1@t"); _fresh("e2@t")
     inv = couples.create_invite("e1@t", "e2@t")

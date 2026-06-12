@@ -67,14 +67,19 @@ def accept_invite(invitee: str, iid: str) -> dict:
     if couple_of(invitee):
         raise ValueError("already_matched")
     with cursor() as cur:
+        # 트랜잭션 안에서 pending→accepted 를 원자적으로 '선점'한다.
+        # 더블탭(동시 수락 2회)이면 두 번째 UPDATE 는 rowcount=0 → 커플 중복 생성 방지.
+        claimed = cur.execute(
+            "UPDATE couple_invites SET status='accepted', responded_at=? "
+            "WHERE id=? AND status='pending'", (_now(), iid)).rowcount
+        if not claimed:
+            raise ValueError("invite_not_found")
         cur.execute("INSERT INTO couples (member_a, member_b, created_at) VALUES (?, ?, ?)",
                     (inviter, invitee, _now()))
         cid = cur.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
         for em in (inviter, invitee):
             cur.execute("INSERT INTO users (email, couple_id) VALUES (?, ?) "
                         "ON CONFLICT(email) DO UPDATE SET couple_id=excluded.couple_id", (em, cid))
-        cur.execute("UPDATE couple_invites SET status='accepted', responded_at=? WHERE id=?",
-                    (_now(), iid))
         cur.execute(
             "UPDATE couple_invites SET status='canceled', responded_at=? "
             "WHERE status='pending' AND id!=? AND "
