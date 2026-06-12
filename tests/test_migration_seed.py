@@ -32,3 +32,19 @@ def test_bootstrap_promotes_legacy_rows_to_couple_one():
     with db.cursor() as cur:
         row = cur.execute("SELECT couple_id FROM bucket WHERE id='lg1'").fetchone()
     assert row["couple_id"] == 1
+
+
+def test_kv_is_per_couple():
+    db.kv_set(1, "theme", "rosy")
+    db.kv_set(2, "theme", "mint")
+    assert db.kv_get(1, "theme") == "rosy"
+    assert db.kv_get(2, "theme") == "mint"
+    assert db.kv_get(3, "theme", "default") == "default"
+
+
+def test_couple_members_returns_both():
+    with db.cursor() as cur:
+        cur.execute("INSERT OR IGNORE INTO couples (id, member_a, member_b, created_at) "
+                    "VALUES (9, 'x@t', 'y@t', '2026-01-01')")
+    assert set(db.couple_members(9)) == {"x@t", "y@t"}
+    assert db.couple_members(999) == []
