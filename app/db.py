@@ -1,6 +1,7 @@
 import sqlite3
 import threading
 from contextlib import contextmanager
+from datetime import datetime
 from .config import settings
 
 _lock = threading.Lock()
@@ -48,8 +49,10 @@ CREATE TABLE IF NOT EXISTS login_codes (
 CREATE INDEX IF NOT EXISTS idx_login_codes ON login_codes (email, code);
 
 CREATE TABLE IF NOT EXISTS settings_kv (
-    key TEXT PRIMARY KEY,
-    value TEXT
+    couple_id INTEGER NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT,
+    PRIMARY KEY (couple_id, key)
 );
 
 CREATE TABLE IF NOT EXISTS photos (
@@ -134,19 +137,79 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_chat_session ON chat_messages (session_id, created_at);
+
+CREATE TABLE IF NOT EXISTS couples (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    member_a TEXT NOT NULL,
+    member_b TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS couple_invites (
+    id TEXT PRIMARY KEY,
+    inviter_email TEXT NOT NULL,
+    invitee_email TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT NOT NULL,
+    responded_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_invites_invitee ON couple_invites (invitee_email, status);
+CREATE INDEX IF NOT EXISTS idx_invites_inviter ON couple_invites (inviter_email, status);
 """
 
 
-def _migrate() -> None:
-    """기존 테이블에 새 컬럼을 멱등하게 추가(SCHEMA 의 IF NOT EXISTS 로는 컬럼 추가가 안 됨)."""
-    migrations = [
-        ("events", "end_date", "TEXT"),   # 2일 이상 이어지는 일정의 종료일(선택)
-    ]
+def _bootstrap_couple_one() -> None:
+    """레거시 단일커플 데이터를 couple #1 로 멱등 승격.
+    - couples 가 비었고 레거시(couple_id NULL) 데이터가 있으면 ALLOWED_EMAILS 2명으로 #1 생성.
+    - couple #1 이 있으면 NULL 인 모든 데이터/유저/kv 를 1 로 백필."""
+    emails = settings.allowed_emails
     with cursor() as cur:
-        for table, col, coltype in migrations:
+        has_one = cur.execute("SELECT 1 FROM couples WHERE id=1").fetchone()
+        legacy = cur.execute(
+            "SELECT 1 FROM events WHERE couple_id IS NULL "
+            "UNION SELECT 1 FROM places WHERE couple_id IS NULL "
+            "UNION SELECT 1 FROM bucket WHERE couple_id IS NULL "
+            "UNION SELECT 1 FROM photos WHERE couple_id IS NULL "
+            "UNION SELECT 1 FROM pokes WHERE couple_id IS NULL "
+            "UNION SELECT 1 FROM chat_messages WHERE couple_id IS NULL LIMIT 1"
+        ).fetchone()
+        if not has_one and legacy and len(emails) >= 2:
+            cur.execute("INSERT INTO couples (id, member_a, member_b, created_at) "
+                        "VALUES (1, ?, ?, ?)",
+                        (emails[0], emails[1], datetime.now().isoformat(timespec="seconds")))
+            has_one = True
+        if has_one:
+            for table in ("events", "places", "bucket", "photos", "pokes", "chat_messages"):
+                cur.execute(f"UPDATE {table} SET couple_id=1 WHERE couple_id IS NULL")
+            for em in emails[:2]:
+                cur.execute("INSERT INTO users (email, couple_id) VALUES (?, 1) "
+                            "ON CONFLICT(email) DO UPDATE SET couple_id=1", (em,))
+
+
+def _migrate() -> None:
+    """멱등 마이그레이션: couple_id 컬럼·end_date·settings_kv 복합키 + couple #1 부트스트랩."""
+    with cursor() as cur:
+        # 1) couple_id 컬럼 (멱등)
+        for table in ("users", "events", "places", "bucket", "photos", "pokes", "chat_messages"):
             cols = {r["name"] for r in cur.execute(f"PRAGMA table_info({table})").fetchall()}
-            if col not in cols:
-                cur.execute(f"ALTER TABLE {table} ADD COLUMN {col} {coltype}")
+            if "couple_id" not in cols:
+                cur.execute(f"ALTER TABLE {table} ADD COLUMN couple_id INTEGER")
+        # events.end_date (기존 마이그레이션 유지)
+        ev_cols = {r["name"] for r in cur.execute("PRAGMA table_info(events)").fetchall()}
+        if "end_date" not in ev_cols:
+            cur.execute("ALTER TABLE events ADD COLUMN end_date TEXT")
+        # 2) settings_kv 단일PK → (couple_id,key) 복합키 재작성 (멱등)
+        kv_cols = {r["name"] for r in cur.execute("PRAGMA table_info(settings_kv)").fetchall()}
+        if "couple_id" not in kv_cols:
+            cur.execute("ALTER TABLE settings_kv RENAME TO settings_kv_old")
+            cur.execute(
+                "CREATE TABLE settings_kv (couple_id INTEGER NOT NULL, key TEXT NOT NULL, "
+                "value TEXT, PRIMARY KEY (couple_id, key))"
+            )
+            cur.execute("INSERT INTO settings_kv (couple_id, key, value) "
+                        "SELECT 1, key, value FROM settings_kv_old")
+            cur.execute("DROP TABLE settings_kv_old")
+    _bootstrap_couple_one()
 
 
 def init_db() -> None:
