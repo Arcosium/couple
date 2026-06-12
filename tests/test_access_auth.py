@@ -28,9 +28,14 @@ def test_no_header_no_cookie_is_unauthenticated():
     assert r.json()["authenticated"] is False
 
 
-def test_disallowed_access_email_rejected():
+def test_unmatched_access_email_has_no_couple():
+    # 베타 오픈가입(OPEN_SIGNUP) 하에서 화이트리스트 밖 사용자도 인증은 되지만,
+    # 커플에 매칭되기 전엔 matched=False (앱 본화면이 아니라 match 플로우로 가야 함).
     r = client.get("/api/auth/me", headers={ACCESS_HEADER: "stranger@example.com"})
-    assert r.json()["authenticated"] is False
+    body = r.json()
+    assert body["authenticated"] is True
+    assert body["matched"] is False
+    assert body["partner"] is None
 
 
 def test_index_serves_app_not_login_for_access_user():

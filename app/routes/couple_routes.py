@@ -30,11 +30,13 @@ def status(request: Request):
     if not cid:
         return {"matched": False}
     partner = partner_of(email)
+    members = couple_members(cid)
+    is_a = bool(members) and email == members[0]
     return {
         "matched": True,
         "couple_id": cid,
         "partner_email": partner,
-        "partner_nickname": kv_get(cid, "nickname_b", "") if partner else "",
+        "partner_nickname": kv_get(cid, "nickname_b" if is_a else "nickname_a", "") if partner else "",
     }
 
 

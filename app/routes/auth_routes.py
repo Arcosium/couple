@@ -10,7 +10,6 @@ from ..auth import (
     make_session_cookie,
     read_session,
 )
-from ..config import settings
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -66,15 +65,18 @@ def me(request: Request):
     email = read_session(request)
     if not email:
         return {"authenticated": False}
-    partner = [e for e in settings.allowed_emails if e != email]
+    from ..auth import couple_of, partner_of
+    from ..db import kv_get, couple_members
+    cid = couple_of(email)
+    if not cid:
+        return {"authenticated": True, "email": email, "matched": False, "partner": None}
+    members = couple_members(cid)
+    is_a = bool(members) and email == members[0]
     return {
         "authenticated": True,
         "email": email,
-        "partner": partner[0] if partner else None,
-        "nickname_self": (
-            settings.nickname_a if email == settings.allowed_emails[0] else settings.nickname_b
-        ) if settings.allowed_emails else None,
-        "nickname_partner": (
-            settings.nickname_b if email == settings.allowed_emails[0] else settings.nickname_a
-        ) if len(settings.allowed_emails) > 1 else None,
+        "matched": True,
+        "partner": partner_of(email),
+        "nickname_self": kv_get(cid, "nickname_a" if is_a else "nickname_b", None),
+        "nickname_partner": kv_get(cid, "nickname_b" if is_a else "nickname_a", None),
     }
