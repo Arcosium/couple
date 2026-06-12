@@ -72,6 +72,10 @@ def me(request: Request):
         return {"authenticated": True, "email": email, "matched": False, "partner": None}
     members = couple_members(cid)
     is_a = bool(members) and email == members[0]
+    my_bday_key = "birthday_a" if is_a else "birthday_b"
+    # 온보딩 판정은 env 기본값을 무시한 raw kv(미설정=None)로만 — 신규 커플은 자기 값이 없음.
+    needs_onboarding = (kv_get(cid, "anniversary_date", None) is None
+                        or kv_get(cid, my_bday_key, None) is None)
     return {
         "authenticated": True,
         "email": email,
@@ -80,4 +84,7 @@ def me(request: Request):
         "nickname_self": kv_get(cid, "nickname_a" if is_a else "nickname_b", None),
         "nickname_partner": kv_get(cid, "nickname_b" if is_a else "nickname_a", None),
         "is_member_a": is_a,
+        "needs_onboarding": needs_onboarding,
+        "anniversary_raw": kv_get(cid, "anniversary_date", "") or "",
+        "my_birthday_raw": kv_get(cid, my_bday_key, "") or "",
     }
