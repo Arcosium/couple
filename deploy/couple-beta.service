@@ -8,7 +8,8 @@ StartLimitIntervalSec=0
 Type=simple
 User=opc
 Group=opc
-WorkingDirectory=/home/opc/projects/couple-beta
+# main==베타 코드(머지 완료)라 운영과 같은 디렉터리를 공유. DB·쿠키·OPEN_SIGNUP env 로만 분리.
+WorkingDirectory=/home/opc/projects/couple
 ExecStart=/usr/bin/python3.11 -m uvicorn server:app --host 127.0.0.1 --port 8801 --proxy-headers --forwarded-allow-ips=*
 Restart=always
 RestartSec=10
@@ -17,7 +18,7 @@ StandardError=journal
 SyslogIdentifier=couple-beta
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/opc/.local/bin
 Environment=PYTHONUNBUFFERED=1
-Environment=COUPLE_DB=/home/opc/projects/couple-beta/data/couple_beta.db
+Environment=COUPLE_DB=/home/opc/projects/couple/data/couple_beta.db
 Environment=SESSION_COOKIE=couple_beta_session
 Environment=OPEN_SIGNUP=1
 
