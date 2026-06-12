@@ -1,23 +1,31 @@
+import json, os
 import pytest
 from app import kakao_import
 
-SAMPLE = '''<html><body>
-<script id="data" type="application/json">
-{"places":[{"name":"연남동 카페","x":"126.92","y":"37.56","road_address":"서울 마포구 ..."},
-           {"name":"망원 칼국수","x":"126.90","y":"37.55","road_address":""}]}
-</script></body></html>'''
+_FIX = os.path.join(os.path.dirname(__file__), "fixtures", "kakao_favorites.json")
 
 
-def test_parse_folder_extracts_places():
-    items = kakao_import.parse_kakao_folder(SAMPLE)
-    assert len(items) == 2
-    assert items[0]["name"] == "연남동 카페"
-    assert abs(items[0]["lat"] - 37.56) < 0.01
-    assert abs(items[0]["lng"] - 126.92) < 0.01
+def test_parse_favorites_extracts_places():
+    data = json.load(open(_FIX, encoding="utf-8"))
+    items = kakao_import.parse_favorites(data)
+    assert len(items) == 2                      # ROUTE 항목은 제외
+    a = items[0]
+    assert a["name"] == "스타벅스 코엑스몰점"
+    assert abs(a["lat"] - 37.5135596) < 1e-6
+    assert abs(a["lng"] - 127.0593538) < 1e-6
+    assert a["road_address"].startswith("서울 강남구")
+    assert items[1]["memo"] == "국물 맛집"
 
 
-def test_parse_empty_returns_empty():
-    assert kakao_import.parse_kakao_folder("<html></html>") == []
+def test_parse_favorites_empty():
+    assert kakao_import.parse_favorites({}) == []
+    assert kakao_import.parse_favorites({"favorites": []}) == []
+
+
+def test_extract_folderid_from_long_url():
+    assert kakao_import._extract_folderid(
+        "https://map.kakao.com/?map_type=TYPE_MAP&folderid=22714483&page=bookmark") == "22714483"
+    assert kakao_import._extract_folderid("https://kko.to/abc") is None
 
 
 @pytest.mark.parametrize("bad", [
