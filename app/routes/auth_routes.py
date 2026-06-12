@@ -79,4 +79,5 @@ def me(request: Request):
         "partner": partner_of(email),
         "nickname_self": kv_get(cid, "nickname_a" if is_a else "nickname_b", None),
         "nickname_partner": kv_get(cid, "nickname_b" if is_a else "nickname_a", None),
+        "is_member_a": is_a,
     }

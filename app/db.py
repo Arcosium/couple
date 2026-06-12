@@ -155,6 +155,18 @@ CREATE TABLE IF NOT EXISTS couple_invites (
 );
 CREATE INDEX IF NOT EXISTS idx_invites_invitee ON couple_invites (invitee_email, status);
 CREATE INDEX IF NOT EXISTS idx_invites_inviter ON couple_invites (inviter_email, status);
+
+CREATE TABLE IF NOT EXISTS daily_notes (
+    id TEXT PRIMARY KEY,
+    couple_id INTEGER NOT NULL,
+    author_email TEXT NOT NULL,
+    date TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (couple_id, author_email, date)
+);
+CREATE INDEX IF NOT EXISTS idx_notes_couple_date ON daily_notes (couple_id, date);
 """
 
 
