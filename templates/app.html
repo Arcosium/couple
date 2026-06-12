@@ -351,6 +351,8 @@
         <button @click="myLocation()" class="ml-auto btn btn-soft py-1.5 px-3 text-sm" title="내 위치">📡 내 위치</button>
         <button @click="fitAllPlaces()" class="btn btn-soft py-1.5 px-3 text-sm" title="모든 핀 보기">🔭 전체</button>
         <button @click="openPlaceForm()" class="btn btn-primary py-1.5 px-3 text-sm">＋ 핀</button>
+        <button @click="kakaoImport.open = true"
+                class="text-sm px-3 py-2 rounded-xl bg-amber-100 text-amber-700">📥 카카오맵 폴더 가져오기</button>
       </div>
       <form @submit.prevent="searchPlaces()" class="flex gap-2">
         <input x-model="mapSearchQuery" class="input flex-1" placeholder="🔍 장소 검색 (예: 홍대 카페, 한강공원)" />
@@ -520,6 +522,9 @@
       </div>
 
       <button @click="logout()" class="btn btn-soft w-full">로그아웃</button>
+
+      <button @click="if(confirm('정말 커플을 해제할까요? 공유 데이터는 더 이상 보이지 않아요.')) unlinkCouple()"
+              class="w-full mt-4 text-red-500 text-sm py-2 ring-1 ring-red-200 rounded-xl">💔 커플 해제</button>
     </div>
   </section>
 </main>
