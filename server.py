@@ -26,6 +26,7 @@ from app.routes import (
     bucket_routes,
     calendar_routes,
     chat_routes,
+    couple_routes,
     photos_routes,
     places_routes,
     poke_routes,
@@ -49,6 +50,7 @@ templates = Jinja2Templates(directory=BASE / "templates")
 
 # 라우터 등록
 app.include_router(auth_routes.router)
+app.include_router(couple_routes.router)
 app.include_router(settings_routes.router)
 app.include_router(photos_routes.router)
 app.include_router(calendar_routes.router)
