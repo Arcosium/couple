@@ -17,7 +17,12 @@ _serializer = URLSafeSerializer(settings.secret_key, salt="couple-auth")
 
 
 def is_allowed(email: str) -> bool:
-    return email.lower().strip() in settings.allowed_emails
+    email = email.lower().strip()
+    if not email or "@" not in email:
+        return False
+    if settings.open_signup:
+        return True
+    return email in settings.allowed_emails
 
 
 def _access_email(request) -> str | None:
@@ -123,6 +128,26 @@ def require_user(request: Request) -> str:
     return email
 
 
+def couple_of(email: str) -> int | None:
+    with cursor() as cur:
+        row = cur.execute("SELECT couple_id FROM users WHERE email=?",
+                          (email.lower().strip(),)).fetchone()
+    return row["couple_id"] if row and row["couple_id"] else None
+
+
 def partner_of(email: str) -> str | None:
-    others = [e for e in settings.allowed_emails if e != email.lower().strip()]
-    return others[0] if others else None
+    from .db import couple_members
+    cid = couple_of(email)
+    if not cid:
+        return None
+    email = email.lower().strip()
+    return next((m for m in couple_members(cid) if m != email), None)
+
+
+def require_couple(request: Request) -> tuple[str, int]:
+    """로그인+매칭 강제. 반환 (email, couple_id). 미매칭이면 409."""
+    email = require_user(request)
+    cid = couple_of(email)
+    if not cid:
+        raise HTTPException(status_code=409, detail="no_couple")
+    return email, cid
