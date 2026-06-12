@@ -49,3 +49,21 @@ def test_bucket_isolated():
     client.post("/api/bucket", json={"title": "E버킷"}, headers=_h("iso_e1@t"))
     f = client.get("/api/bucket", headers=_h("iso_f1@t")).json()
     assert all(b["title"] != "E버킷" for b in f)
+
+
+def test_photos_isolated():
+    from app import auth
+    _match("iso_g1@t", "iso_g2@t"); _match("iso_h1@t", "iso_h2@t")
+    gcid = auth.couple_of("iso_g1@t")
+    with db.cursor() as cur:
+        cur.execute("INSERT INTO photos (id, owner_email, filename, uploaded_at, couple_id) "
+                    "VALUES ('ph1', 'iso_g1@t', 'x.jpg', '2026-01-01', ?)", (gcid,))
+    h = client.get("/api/photos", headers=_h("iso_h1@t")).json()
+    assert all((p.get("id") if isinstance(p, dict) else None) != "ph1" for p in h)
+
+
+def test_pokes_isolated():
+    _match("iso_i1@t", "iso_i2@t")
+    client.post("/api/pokes", json={"emoji": "💗"}, headers=_h("iso_i1@t"))
+    _match("iso_j1@t", "iso_j2@t")
+    assert client.get("/api/pokes", headers=_h("iso_j1@t")).json() == []

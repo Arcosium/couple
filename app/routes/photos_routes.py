@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 from PIL import Image, ExifTags
 import piexif
 
-from ..auth import require_user
+from ..auth import require_couple
 from ..config import settings
 from ..db import cursor
 
@@ -67,7 +67,7 @@ async def upload(
     lng: float | None = Form(None),
     taken_at: str | None = Form(None),
 ):
-    user = require_user(request)
+    user, cid = require_couple(request)
     ext = Path(file.filename or "").suffix.lower()
     if ext not in ALLOWED_EXT:
         raise HTTPException(status_code=400, detail="unsupported_format")
@@ -88,13 +88,13 @@ async def upload(
         cur.execute(
             """INSERT INTO photos
                (id, owner_email, filename, caption, place_name, lat, lng, taken_at,
-                uploaded_at, width, height, size_bytes)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                uploaded_at, width, height, size_bytes, couple_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 pid, user, fname, caption.strip(), place_name.strip(),
                 final_lat, final_lng, final_taken,
                 datetime.utcnow().isoformat(timespec="seconds"),
-                w, h, len(raw),
+                w, h, len(raw), cid,
             ),
         )
     return {
@@ -115,9 +115,9 @@ def list_photos(
     from_date: str | None = None,
     to_date: str | None = None,
 ):
-    require_user(request)
-    sql = "SELECT * FROM photos WHERE 1=1"
-    args: list = []
+    _email, cid = require_couple(request)
+    sql = "SELECT * FROM photos WHERE 1=1 AND couple_id=?"
+    args: list = [cid]
     if q:
         sql += " AND (caption LIKE ? OR place_name LIKE ?)"
         args.extend([f"%{q}%", f"%{q}%"])
@@ -140,21 +140,23 @@ def list_photos(
 
 @router.get("/places")
 def photo_places(request: Request):
-    require_user(request)
+    _email, cid = require_couple(request)
     with cursor() as cur:
         rows = cur.execute(
             """SELECT place_name, lat, lng, COUNT(*) AS n, MAX(taken_at) AS last_taken
-               FROM photos WHERE place_name IS NOT NULL AND place_name != ''
-               GROUP BY place_name ORDER BY n DESC"""
+               FROM photos WHERE place_name IS NOT NULL AND place_name != '' AND couple_id=?
+               GROUP BY place_name ORDER BY n DESC""",
+            (cid,),
         ).fetchall()
     return [dict(r) for r in rows]
 
 
 @router.get("/file/{pid}")
 def get_file(pid: str, request: Request):
-    require_user(request)
+    _email, cid = require_couple(request)
     with cursor() as cur:
-        row = cur.execute("SELECT filename FROM photos WHERE id=?", (pid,)).fetchone()
+        row = cur.execute("SELECT filename FROM photos WHERE id=? AND couple_id=?",
+                          (pid, cid)).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="not_found")
     fpath = settings.uploads_dir / row["filename"]
@@ -165,7 +167,7 @@ def get_file(pid: str, request: Request):
 
 @router.patch("/{pid}")
 async def edit(pid: str, request: Request):
-    require_user(request)
+    _email, cid = require_couple(request)
     body = await request.json()
     fields = []
     args: list = []
@@ -176,15 +178,16 @@ async def edit(pid: str, request: Request):
     if not fields:
         return {"ok": True}
     args.append(pid)
+    args.append(cid)
     with cursor() as cur:
-        cur.execute(f"UPDATE photos SET {', '.join(fields)} WHERE id=?", args)
+        cur.execute(f"UPDATE photos SET {', '.join(fields)} WHERE id=? AND couple_id=?", args)
     return {"ok": True}
 
 
 @router.post("/bulk_delete")
 async def bulk_delete(request: Request):
     """여러 사진을 한 번에 삭제. body: {ids: [...]}"""
-    require_user(request)
+    _email, cid = require_couple(request)
     body = await request.json()
     ids = [str(x) for x in (body.get("ids") or [])]
     if not ids:
@@ -192,9 +195,13 @@ async def bulk_delete(request: Request):
     placeholders = ",".join("?" * len(ids))
     with cursor() as cur:
         rows = cur.execute(
-            f"SELECT filename FROM photos WHERE id IN ({placeholders})", ids
+            f"SELECT filename FROM photos WHERE id IN ({placeholders}) AND couple_id=?",
+            ids + [cid],
         ).fetchall()
-        cur.execute(f"DELETE FROM photos WHERE id IN ({placeholders})", ids)
+        cur.execute(
+            f"DELETE FROM photos WHERE id IN ({placeholders}) AND couple_id=?",
+            ids + [cid],
+        )
     for r in rows:
         try:
             (settings.uploads_dir / r["filename"]).unlink(missing_ok=True)
@@ -206,7 +213,7 @@ async def bulk_delete(request: Request):
 @router.post("/bulk_place")
 async def bulk_place(request: Request):
     """여러 사진의 장소를 한 번에 변경. body: {ids: [...], place_name, lat?, lng?}"""
-    require_user(request)
+    _email, cid = require_couple(request)
     body = await request.json()
     ids = [str(x) for x in (body.get("ids") or [])]
     if not ids:
@@ -221,20 +228,21 @@ async def bulk_place(request: Request):
     placeholders = ",".join("?" * len(ids))
     with cursor() as cur:
         cur.execute(
-            f"UPDATE photos SET {', '.join(sets)} WHERE id IN ({placeholders})",
-            args + ids,
+            f"UPDATE photos SET {', '.join(sets)} WHERE id IN ({placeholders}) AND couple_id=?",
+            args + ids + [cid],
         )
     return {"ok": True, "updated": len(ids)}
 
 
 @router.delete("/{pid}")
 def delete(pid: str, request: Request):
-    require_user(request)
+    _email, cid = require_couple(request)
     with cursor() as cur:
-        row = cur.execute("SELECT filename FROM photos WHERE id=?", (pid,)).fetchone()
+        row = cur.execute("SELECT filename FROM photos WHERE id=? AND couple_id=?",
+                          (pid, cid)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="not_found")
-        cur.execute("DELETE FROM photos WHERE id=?", (pid,))
+        cur.execute("DELETE FROM photos WHERE id=? AND couple_id=?", (pid, cid))
     try:
         (settings.uploads_dir / row["filename"]).unlink(missing_ok=True)
     except Exception:
