@@ -55,9 +55,10 @@ def test_validate_url_allows_kakao_host_shape():
 from fastapi.testclient import TestClient
 from server import app
 from app import db, couples
+from app.auth import SESSION_COOKIE, make_session_cookie
 
 client = TestClient(app)
-def _h(e): return {"Cf-Access-Authenticated-User-Email": e}
+def _h(e): return {"Cookie": f"{SESSION_COOKIE}={make_session_cookie(e)}"}
 
 
 def _match(a, b):

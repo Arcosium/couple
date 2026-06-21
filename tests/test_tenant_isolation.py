@@ -2,6 +2,7 @@
 from fastapi.testclient import TestClient
 from server import app
 from app import db
+from app.auth import SESSION_COOKIE, make_session_cookie
 
 client = TestClient(app)
 
@@ -17,7 +18,7 @@ def _match(a, b):
 
 
 def _h(email):
-    return {"Cf-Access-Authenticated-User-Email": email}
+    return {"Cookie": f"{SESSION_COOKIE}={make_session_cookie(email)}"}
 
 
 def test_events_isolated_between_couples():

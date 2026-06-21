@@ -7,9 +7,10 @@ from fastapi.testclient import TestClient
 
 from server import app
 from app.config import settings
+from app.auth import SESSION_COOKIE, make_session_cookie
 
 client = TestClient(app)
-H = {"Cf-Access-Authenticated-User-Email": settings.allowed_emails[0]}
+H = {"Cookie": f"{SESSION_COOKIE}={make_session_cookie(settings.allowed_emails[0])}"}
 
 
 def _create(**kw):
