@@ -138,7 +138,7 @@ async def websocket_endpoint(ws: WebSocket):
     # FastAPI WebSocket 은 자동 Depends 가 약하니 쿠키에서 직접 세션 확인
     cookies = {c.split("=", 1)[0]: c.split("=", 1)[1] for c in
                (ws.headers.get("cookie") or "").split("; ") if "=" in c}
-    # read_session 이 쿠키뿐 아니라 Cf-Access 헤더 폴백도 보므로 headers 도 넘긴다.
+    # read_session 은 서명 세션 쿠키만 본다(헤더 폴백 제거). 쿠키 파싱용으로 구성.
     fake_request = type("R", (), {"cookies": cookies, "headers": ws.headers})()
     email = read_session(fake_request)
     if not email:

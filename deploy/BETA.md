@@ -36,10 +36,10 @@ Zero Trust → Networks → Tunnels → `couple-tunnel`:
 - **Public Hostname 추가**: `beta.couple.ai-ve.uk` → `http://127.0.0.1:8801`
 - **Access 전부 통과**: `beta.couple.ai-ve.uk` 용 Access 앱을 만들지 않거나(권장),
   기존 앱이 서브도메인까지 덮으면 그 호스트에 **Action=Bypass, Include=Everyone** 정책 추가.
-- ⚠️ 운영 도메인(`couple.ai-ve.uk`)의 2-이메일 Access 는 그대로 둔다.
+- ⚠️ 운영(`couple.ai-ve.uk`)은 이제 앱 자체 아이디+비밀번호 인증 → CF Access 해제 가능(선택, 터널은 유지).
 
 ## 5. 동작 확인 (4번 이후)
-- https://beta.couple.ai-ve.uk → 신규 이메일로 코드 로그인(SMTP 미설정이면 `journalctl -u couple-beta` 에 코드 출력)
+- https://beta.couple.ai-ve.uk → 회원가입(아이디+비밀번호)으로 로그인(이메일 인증 없음, 완전 개방)
 - 두 계정으로 초대 → 수락 → 데이터 격리 / 커플 해제 / 카카오 가져오기 확인.
 
 ## 카카오 가져오기 (검증 완료 2026-06-12)
