@@ -237,9 +237,10 @@ def read_session(request: Request) -> str | None:
             data = None
         if data:
             email = data.get("email")
-            if email and is_allowed(email):
+            if email:
+                # 우리 SECRET_KEY 로 서명된 쿠키는 비번 검증 후에만 발급되므로 신뢰한다.
                 return email
-    # 세션 쿠키가 없거나 무효면 Cloudflare Access 신원으로 폴백한다.
+    # (과도기) 세션 쿠키가 없거나 무효면 Cloudflare Access 신원으로 폴백 — Task 8 에서 제거.
     return _access_email(request)
 
 

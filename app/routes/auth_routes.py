@@ -1,56 +1,79 @@
 from fastapi import APIRouter, Request, Response, HTTPException
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 
 from ..auth import (
     SESSION_COOKIE,
-    consume_code,
-    deliver_code,
-    is_allowed,
-    issue_code,
+    authenticate,
+    claim_legacy,
+    clear_attempts,
+    create_user,
+    is_locked,
     make_session_cookie,
     read_session,
+    record_failure,
 )
+from ..config import settings
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
-class EmailIn(BaseModel):
-    email: EmailStr
+class Credentials(BaseModel):
+    username: str
+    password: str
 
 
-class VerifyIn(BaseModel):
-    email: EmailStr
-    code: str
+class ClaimIn(BaseModel):
+    email: str
+    username: str
+    password: str
 
 
-@router.post("/request_code")
-def request_code(body: EmailIn):
-    email = body.email.lower().strip()
-    if not is_allowed(email):
-        # 화이트리스트가 아니면 어떤 정보도 노출하지 않는다.
-        raise HTTPException(status_code=403, detail="not_allowed")
-    code = issue_code(email)
-    res = deliver_code(email, code)
-    return {"ok": True, "channel": res["channel"]}
-
-
-@router.post("/verify")
-def verify(body: VerifyIn, response: Response):
-    email = body.email.lower().strip()
-    code = body.code.strip()
-    if not is_allowed(email):
-        raise HTTPException(status_code=403, detail="not_allowed")
-    if not consume_code(email, code):
-        raise HTTPException(status_code=400, detail="invalid_or_expired")
-    token = make_session_cookie(email)
+def _set_session(response: Response, email: str) -> None:
     response.set_cookie(
         SESSION_COOKIE,
-        token,
+        make_session_cookie(email),
         max_age=60 * 60 * 24 * 90,
         httponly=True,
         samesite="lax",
         secure=False,  # cloudflared가 TLS 종단, 내부는 http
     )
+
+
+@router.post("/signup")
+def signup(body: Credentials, response: Response):
+    if not settings.allow_signup:
+        raise HTTPException(status_code=403, detail="signup_closed")
+    try:
+        email = create_user(body.username, body.password)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    _set_session(response, email)
+    return {"ok": True, "email": email}
+
+
+@router.post("/login")
+def login(body: Credentials, response: Response):
+    username = (body.username or "").strip().lower()
+    if is_locked(username):
+        raise HTTPException(status_code=429, detail="too_many_attempts")
+    email = authenticate(username, body.password)
+    if not email:
+        record_failure(username)
+        raise HTTPException(status_code=401, detail="invalid_credentials")
+    clear_attempts(username)
+    _set_session(response, email)
+    return {"ok": True, "email": email}
+
+
+@router.post("/claim")
+def claim(body: ClaimIn, response: Response):
+    if not settings.allow_legacy_claim:
+        raise HTTPException(status_code=403, detail="claim_closed")
+    try:
+        email = claim_legacy(body.email, body.username, body.password)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    _set_session(response, email)
     return {"ok": True, "email": email}
 
 
