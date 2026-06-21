@@ -1,9 +1,12 @@
+import re
 import secrets
 import smtplib
 import time
 from email.mime.text import MIMEText
 from fastapi import Request, HTTPException
 from itsdangerous import URLSafeSerializer, BadSignature
+from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError, VerificationError, InvalidHashError
 
 from .config import settings
 from .db import cursor
@@ -14,6 +17,38 @@ SESSION_COOKIE = settings.session_cookie
 # origin 이 터널 너머에만 있는 한 신뢰 가능. 이게 사실상의 단일 로그인이다.
 ACCESS_EMAIL_HEADER = "Cf-Access-Authenticated-User-Email"
 _serializer = URLSafeSerializer(settings.secret_key, salt="couple-auth")
+
+_ph = PasswordHasher()
+
+USERNAME_MIN, USERNAME_MAX = 3, 32
+PASSWORD_MIN = 8
+_USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+def validate_username(u: str) -> str:
+    u = (u or "").strip()
+    if not (USERNAME_MIN <= len(u) <= USERNAME_MAX) or not _USERNAME_RE.match(u):
+        raise ValueError("bad_username")
+    return u.lower()
+
+
+def validate_password(pw: str) -> None:
+    if not pw or len(pw) < PASSWORD_MIN:
+        raise ValueError("weak_password")
+
+
+def hash_password(pw: str) -> str:
+    return _ph.hash(pw)
+
+
+def verify_password(hash_: str, pw: str) -> bool:
+    if not hash_:
+        return False
+    try:
+        _ph.verify(hash_, pw)
+        return True
+    except (VerifyMismatchError, VerificationError, InvalidHashError):
+        return False
 
 
 def is_allowed(email: str) -> bool:

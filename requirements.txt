@@ -10,3 +10,4 @@ google-genai==1.65.0
 httpx==0.28.1
 python-dotenv==1.0.1
 websockets==14.1
+argon2-cffi==25.1.0
