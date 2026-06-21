@@ -2,7 +2,7 @@
 
 - 작성일: 2026-06-21
 - 브랜치: `feat-password-auth`
-- 상태: 설계 승인됨 → 구현 계획
+- 상태: 구현 완료 (feat-password-auth, 91 tests green) — 배포·claim·CF Access 해제는 사장 실행 잔여
 
 ## 배경
 
