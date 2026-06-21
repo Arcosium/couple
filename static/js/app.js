@@ -296,9 +296,10 @@ function appState() {
       this.onboarding.birthday = j.my_birthday_raw || '';
       this.onboarding.nickname = j.nickname_self || '';
     },
-    logout() {
-      // Cloudflare Access 세션을 종료한다(앱 자체 쿠키만 지워선 헤더로 즉시 재인증됨).
-      location.href = '/cdn-cgi/access/logout';
+    async logout() {
+      // 앱 세션 쿠키 삭제 후 로그인 화면으로. (CF Access 의존 제거)
+      try { await fetch('/api/auth/logout', { method: 'POST' }); } catch (_) {}
+      location.href = '/';
     },
     async unlinkCouple() {
       const r = await fetch('/api/couple/unlink', { method: 'POST' });

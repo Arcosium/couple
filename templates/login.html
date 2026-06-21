@@ -89,51 +89,46 @@
     </p>
 
     <div x-data="loginForm()" class="space-y-5">
-      <!-- step 1: email -->
-      <template x-if="step==='email'">
-        <form @submit.prevent="requestCode" class="space-y-4">
-          <label class="block">
-            <span class="block text-sm font-medium text-rose-900/80 mb-1.5">이메일</span>
-            <input type="email" x-model="email" required autocomplete="email"
-              placeholder="your@email.com"
-              class="w-full bg-white/80 rounded-2xl px-4 py-3.5 ring-1 ring-rose-200 focus:ring-2 focus:ring-rose-400 outline-none text-rose-900 placeholder:text-rose-300 transition" />
-          </label>
-          <button type="submit" :disabled="loading"
-            class="w-full bg-gradient-to-br from-rose-400 to-pink-500 hover:from-rose-500 hover:to-pink-600 text-white font-semibold py-3.5 rounded-2xl shadow-lg shadow-rose-300/40 active:scale-[.98] transition disabled:opacity-50">
-            <span x-show="!loading">💌 인증 코드 받기</span>
-            <span x-show="loading">전송 중…</span>
-          </button>
-          <p class="text-xs text-rose-700/60 text-center">
-            이메일로 가입하고, 상대를 초대해 둘만의 공간을 만들어요.
-          </p>
-        </form>
-      </template>
+      <!-- 모드 탭 -->
+      <div class="flex gap-1 bg-rose-100/60 rounded-2xl p-1 text-sm">
+        <button type="button" @click="mode='login'"  :class="mode==='login'  ? 'bg-white shadow text-rose-700' : 'text-rose-500'" class="flex-1 py-2 rounded-xl font-medium transition">로그인</button>
+        <button type="button" @click="mode='signup'" :class="mode==='signup' ? 'bg-white shadow text-rose-700' : 'text-rose-500'" class="flex-1 py-2 rounded-xl font-medium transition">회원가입</button>
+        <button type="button" @click="mode='claim'"  :class="mode==='claim'  ? 'bg-white shadow text-rose-700' : 'text-rose-500'" class="flex-1 py-2 rounded-xl font-medium transition">이어받기</button>
+      </div>
 
-      <!-- step 2: code -->
-      <template x-if="step==='code'">
-        <form @submit.prevent="verifyCode" class="space-y-4">
-          <p class="text-sm text-rose-800/80 bg-rose-100/60 rounded-2xl px-4 py-3">
-            <span x-text="email"></span> 으로 6자리 코드를 보냈어!
-            <template x-if="channel==='console'">
-              <span class="block mt-1 text-rose-600 text-xs">
-                (SMTP 미설정 — 서버 로그 <code>journalctl -u couple</code> 에서 확인)
-              </span>
-            </template>
-          </p>
-          <input type="text" inputmode="numeric" maxlength="6" pattern="[0-9]{6}"
-            x-model="code" required autofocus
-            class="code w-full bg-white/80 rounded-2xl px-4 py-4 ring-1 ring-rose-200 focus:ring-2 focus:ring-rose-400 outline-none text-rose-900" placeholder="······" />
-          <button type="submit" :disabled="loading || code.length<6"
-            class="w-full bg-gradient-to-br from-rose-500 to-fuchsia-500 text-white font-semibold py-3.5 rounded-2xl shadow-lg shadow-rose-300/40 active:scale-[.98] transition disabled:opacity-50">
-            <span x-show="!loading">💖 들어가기</span>
-            <span x-show="loading">확인 중…</span>
-          </button>
-          <button type="button" @click="step='email'; code=''"
-            class="w-full text-rose-600 text-sm py-1 hover:underline">
-            이메일 다시 입력
-          </button>
-        </form>
-      </template>
+      <form @submit.prevent="submit" class="space-y-4">
+        <!-- 이어받기: 옛 이메일 -->
+        <label class="block" x-show="mode==='claim'">
+          <span class="block text-sm font-medium text-rose-900/80 mb-1.5">예전에 쓰던 이메일</span>
+          <input type="email" x-model="claimEmail" autocomplete="email" placeholder="your@email.com"
+            class="w-full bg-white/80 rounded-2xl px-4 py-3.5 ring-1 ring-rose-200 focus:ring-2 focus:ring-rose-400 outline-none text-rose-900 placeholder:text-rose-300 transition" />
+          <span class="block mt-1 text-xs text-rose-600/70">사진·일정·기념일을 그대로 이어받아요 💝</span>
+        </label>
+
+        <label class="block">
+          <span class="block text-sm font-medium text-rose-900/80 mb-1.5">아이디</span>
+          <input type="text" x-model="username" required autocomplete="username" placeholder="3~32자 영문/숫자"
+            class="w-full bg-white/80 rounded-2xl px-4 py-3.5 ring-1 ring-rose-200 focus:ring-2 focus:ring-rose-400 outline-none text-rose-900 placeholder:text-rose-300 transition" />
+        </label>
+
+        <label class="block">
+          <span class="block text-sm font-medium text-rose-900/80 mb-1.5">비밀번호</span>
+          <input type="password" x-model="password" required autocomplete="current-password" placeholder="8자 이상"
+            class="w-full bg-white/80 rounded-2xl px-4 py-3.5 ring-1 ring-rose-200 focus:ring-2 focus:ring-rose-400 outline-none text-rose-900 placeholder:text-rose-300 transition" />
+        </label>
+
+        <label class="block" x-show="mode==='signup'">
+          <span class="block text-sm font-medium text-rose-900/80 mb-1.5">비밀번호 확인</span>
+          <input type="password" x-model="password2" autocomplete="new-password" placeholder="다시 한 번"
+            class="w-full bg-white/80 rounded-2xl px-4 py-3.5 ring-1 ring-rose-200 focus:ring-2 focus:ring-rose-400 outline-none text-rose-900 placeholder:text-rose-300 transition" />
+        </label>
+
+        <button type="submit" :disabled="loading"
+          class="w-full bg-gradient-to-br from-rose-400 to-pink-500 hover:from-rose-500 hover:to-pink-600 text-white font-semibold py-3.5 rounded-2xl shadow-lg shadow-rose-300/40 active:scale-[.98] transition disabled:opacity-50">
+          <span x-show="!loading" x-text="mode==='login' ? '💖 들어가기' : (mode==='signup' ? '💌 가입하기' : '🎁 이어받기')"></span>
+          <span x-show="loading">잠시만…</span>
+        </button>
+      </form>
 
       <p x-show="error" x-text="error"
         class="text-rose-700 bg-rose-100 rounded-xl px-3 py-2 text-sm text-center"></p>
@@ -150,38 +145,37 @@
 <script>
 function loginForm() {
   return {
-    step: 'email',
-    email: '',
-    code: '',
-    channel: '',
-    loading: false,
-    error: '',
-    async requestCode() {
-      this.error=''; this.loading=true;
-      try {
-        const r = await fetch('/api/auth/request_code', {
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({email: this.email})
-        });
-        const j = await r.json();
-        if (!r.ok) throw new Error(j.detail==='not_allowed'? '잠시 후 다시 시도해 주세요' : '코드 전송 실패');
-        this.channel = j.channel;
-        this.step = 'code';
-      } catch(e) { this.error = e.message; }
-      finally { this.loading=false; }
+    mode: 'login', username: '', password: '', password2: '', claimEmail: '',
+    loading: false, error: '',
+    msg(code) {
+      return ({
+        invalid_credentials: '아이디 또는 비밀번호가 달라',
+        username_taken: '이미 쓰이는 아이디야',
+        bad_username: '아이디는 3~32자 영문/숫자/._- 만 돼',
+        weak_password: '비밀번호는 8자 이상이어야 해',
+        not_claimable: '이어받을 수 없는 이메일이야',
+        signup_closed: '지금은 가입을 받지 않아',
+        claim_closed: '이어받기는 마감됐어',
+        too_many_attempts: '시도가 많아 잠깐 잠겼어. 1분 뒤 다시 해줘',
+      })[code] || '문제가 생겼어. 잠시 후 다시';
     },
-    async verifyCode() {
-      this.error=''; this.loading=true;
+    async submit() {
+      this.error = '';
+      if (this.mode === 'signup' && this.password !== this.password2) {
+        this.error = '비밀번호 확인이 달라'; return;
+      }
+      this.loading = true;
       try {
-        const r = await fetch('/api/auth/verify', {
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({email: this.email, code: this.code})
-        });
-        const j = await r.json();
-        if (!r.ok) throw new Error(j.detail==='invalid_or_expired'? '코드가 틀렸거나 만료됐어' : '로그인 실패');
+        let url, payload;
+        if (this.mode === 'login') { url = '/api/auth/login'; payload = { username: this.username, password: this.password }; }
+        else if (this.mode === 'signup') { url = '/api/auth/signup'; payload = { username: this.username, password: this.password }; }
+        else { url = '/api/auth/claim'; payload = { email: this.claimEmail, username: this.username, password: this.password }; }
+        const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(this.msg(j.detail));
         location.href = '/';
-      } catch(e) { this.error = e.message; }
-      finally { this.loading=false; }
+      } catch (e) { this.error = e.message; }
+      finally { this.loading = false; }
     },
   }
 }
