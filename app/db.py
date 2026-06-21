@@ -41,8 +41,9 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT,
     password_hash TEXT
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username
-    ON users (username) WHERE username IS NOT NULL;
+-- NOTE: username 부분 유니크 인덱스는 _migrate() 에서 생성한다.
+-- 기존 DB 는 users 테이블이 이미 있어 위 CREATE 가 no-op → username 컬럼이
+-- ALTER(_migrate) 전엔 없으므로, 여기서 인덱스를 만들면 'no such column' 으로 죽는다.
 
 CREATE TABLE IF NOT EXISTS login_codes (
     email TEXT NOT NULL,
