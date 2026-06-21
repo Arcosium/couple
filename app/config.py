@@ -19,9 +19,13 @@ class Settings:
     db_path: Path = Path(os.getenv("COUPLE_DB") or (BASE_DIR / "data" / "couple.db"))
 
     session_cookie: str = os.getenv("SESSION_COOKIE", "couple_session")
+    # 자체 아이디+비밀번호 인증 플래그
+    allow_signup: bool = os.getenv("ALLOW_SIGNUP", "1").lower() in ("1", "true", "yes")
+    allow_legacy_claim: bool = os.getenv("ALLOW_LEGACY_CLAIM", "1").lower() in ("1", "true", "yes")
+    # DEPRECATED(2026-06-21): CF Access·화이트리스트 폐기. conftest 시드에서만 참조.
     open_signup: bool = os.getenv("OPEN_SIGNUP", "").lower() in ("1", "true", "yes")
-
     allowed_emails: list[str] = _emails()
+
     secret_key: str = os.getenv("SECRET_KEY", "dev-insecure-change-me")
 
     gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
