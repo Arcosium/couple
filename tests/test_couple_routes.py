@@ -1,12 +1,13 @@
 from fastapi.testclient import TestClient
 from server import app
 from app import db
+from app.auth import SESSION_COOKIE, make_session_cookie
 
 client = TestClient(app)
 
 
 def _login(email):
-    return {"Cf-Access-Authenticated-User-Email": email}
+    return {"Cookie": f"{SESSION_COOKIE}={make_session_cookie(email)}"}
 
 
 def _unmatch(email):
