@@ -51,6 +51,41 @@ def verify_password(hash_: str, pw: str) -> bool:
         return False
 
 
+# ── 로그인 throttle (무차별 대입 방어) ────────────────────────────────
+# CF Access 가 사라지면 로그인 폼이 공개되므로 필수. 단일 프로세스 uvicorn 전제의
+# 인메모리 카운터(재시작 시 리셋). 정책(횟수·시간·키)은 보안 vs UX 트레이드오프다.
+MAX_FAILS = 5
+LOCK_SECONDS = 60
+_attempts: dict[str, list] = {}   # username -> [fail_count, first_fail_ts]
+
+
+def is_locked(username: str) -> bool:
+    """해당 username 이 지금 잠금 상태인지. 잠금창이 지났으면 리셋하고 False."""
+    rec = _attempts.get(username)
+    if not rec:
+        return False
+    fails, first = rec
+    if (time.time() - first) >= LOCK_SECONDS:
+        _attempts.pop(username, None)        # 창 경과 → 리셋
+        return False
+    return fails >= MAX_FAILS
+
+
+def record_failure(username: str) -> None:
+    """로그인 실패 1건 기록. 잠금창이 지났으면 새 창으로 카운트 리셋."""
+    now = time.time()
+    rec = _attempts.get(username)
+    if not rec or (now - rec[1]) >= LOCK_SECONDS:
+        _attempts[username] = [1, now]
+    else:
+        rec[0] += 1
+
+
+def clear_attempts(username: str) -> None:
+    """로그인 성공 시 실패 기록 제거."""
+    _attempts.pop(username, None)
+
+
 def create_user(username: str, password: str) -> str:
     """신규 가입: email=username 행 생성. 반환 identity(email). 중복 시 ValueError."""
     username = validate_username(username)
