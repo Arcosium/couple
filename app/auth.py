@@ -51,6 +51,58 @@ def verify_password(hash_: str, pw: str) -> bool:
         return False
 
 
+def create_user(username: str, password: str) -> str:
+    """신규 가입: email=username 행 생성. 반환 identity(email). 중복 시 ValueError."""
+    username = validate_username(username)
+    validate_password(password)
+    ph = hash_password(password)
+    with cursor() as cur:
+        exists = cur.execute(
+            "SELECT 1 FROM users WHERE email=? OR username=?", (username, username)
+        ).fetchone()
+        if exists:
+            raise ValueError("username_taken")
+        cur.execute(
+            "INSERT INTO users (email, username, password_hash) VALUES (?, ?, ?)",
+            (username, username, ph),
+        )
+    return username
+
+
+def authenticate(username: str, password: str) -> str | None:
+    """username 으로 행 조회 → 비번 검증 → identity(email) 반환, 실패 None."""
+    username = (username or "").strip().lower()
+    with cursor() as cur:
+        row = cur.execute(
+            "SELECT email, password_hash FROM users WHERE username=?", (username,)
+        ).fetchone()
+    if not row or not row["password_hash"]:
+        return None
+    if not verify_password(row["password_hash"], password):
+        return None
+    return row["email"]
+
+
+def claim_legacy(email: str, username: str, password: str) -> str:
+    """옛 email 행(username NULL)에 username/password_hash 세팅. 반환 identity(email).
+    옛 데이터(couple/사진/일정)는 email 키 그대로라 자동 보존된다."""
+    email = (email or "").strip().lower()
+    username = validate_username(username)
+    validate_password(password)
+    ph = hash_password(password)
+    with cursor() as cur:
+        row = cur.execute("SELECT username FROM users WHERE email=?", (email,)).fetchone()
+        if not row or row["username"] is not None:
+            raise ValueError("not_claimable")          # 없음 or 이미 claim됨
+        if cur.execute("SELECT 1 FROM users WHERE username=?", (username,)).fetchone():
+            raise ValueError("username_taken")
+        cur.execute(
+            "UPDATE users SET username=?, password_hash=? WHERE email=? AND username IS NULL",
+            (username, ph, email),
+        )
+    return email
+
+
 def is_allowed(email: str) -> bool:
     email = email.lower().strip()
     if not email or "@" not in email:
