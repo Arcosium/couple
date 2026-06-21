@@ -37,8 +37,12 @@ CREATE TABLE IF NOT EXISTS users (
     email TEXT PRIMARY KEY,
     nickname TEXT,
     avatar TEXT,
-    last_seen TEXT
+    last_seen TEXT,
+    username TEXT,
+    password_hash TEXT
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username
+    ON users (username) WHERE username IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS login_codes (
     email TEXT NOT NULL,
@@ -231,6 +235,13 @@ def _migrate() -> None:
             cols = {r["name"] for r in cur.execute(f"PRAGMA table_info({table})").fetchall()}
             if "couple_id" not in cols:
                 cur.execute(f"ALTER TABLE {table} ADD COLUMN couple_id INTEGER")
+        # users 에 username/password_hash (멱등) + 부분 유니크 인덱스
+        user_cols = {r["name"] for r in cur.execute("PRAGMA table_info(users)").fetchall()}
+        for col in ("username", "password_hash"):
+            if col not in user_cols:
+                cur.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT")
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username "
+                    "ON users (username) WHERE username IS NOT NULL")
         # events.end_date (기존 마이그레이션 유지)
         ev_cols = {r["name"] for r in cur.execute("PRAGMA table_info(events)").fetchall()}
         if "end_date" not in ev_cols:
