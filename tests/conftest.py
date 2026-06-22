@@ -6,6 +6,7 @@ import tempfile
 _TMP_DB = os.path.join(tempfile.mkdtemp(prefix="couple-test-"), "test.db")
 os.environ["COUPLE_DB"] = _TMP_DB
 os.environ["OPEN_SIGNUP"] = "1"
+os.environ.setdefault("ALLOWED_EMAILS", "a@test,b@test")
 
 import pytest
 from app.config import settings

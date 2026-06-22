@@ -37,21 +37,6 @@ def _now_iso() -> str:
     return datetime.datetime.now().isoformat(timespec="seconds")
 
 
-def _args_to_dict(args) -> dict:
-    """Gemini FunctionCall.args(MapComposite) → 평범한 dict."""
-    if args is None:
-        return {}
-    if isinstance(args, dict):
-        return args
-    try:
-        return {k: v for k, v in args.items()}
-    except Exception:
-        try:
-            return dict(args)
-        except Exception:
-            return {}
-
-
 # ── 카카오 검색(REST) ───────────────────────────────
 async def kakao_search(query: str, **_) -> dict:
     if not settings.kakao_rest_key:
@@ -377,7 +362,7 @@ async def execute_tool(name: str, args: dict, user_email: str, couple_id: int) -
         return {"error": f"{type(e).__name__}: {e}"}
 
 
-# ── 도구 선언(Gemini 가 보는 스키마) ────────────────
+# ── 도구 선언(OpenAI 호환 function-calling 스키마) ────────────────
 TOOL_DECLARATIONS = [{
     "function_declarations": [
         {

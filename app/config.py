@@ -3,8 +3,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-# 통합 .env (전 프로젝트 공용). 키 회전은 /home/opc/projects/.env 한 곳에서.
-load_dotenv("/home/opc/projects/.env")
+# 앱 디렉터리의 설정만 읽는다. 다른 프로젝트의 API 키를 공유하지 않는다.
+load_dotenv(BASE_DIR / ".env")
 
 
 def _emails():
@@ -28,8 +28,13 @@ class Settings:
 
     secret_key: str = os.getenv("SECRET_KEY", "dev-insecure-change-me")
 
-    gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
-    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    # OpenAI 호환 로컬 서버 주소. 예: http://127.0.0.1:8080/v1
+    # 인증 헤더나 API 키는 보내지 않는다.
+    local_llm_base_url: str = os.getenv("LOCAL_LLM_BASE_URL", "")
+    local_llm_model: str = os.getenv(
+        "LOCAL_LLM_MODEL", "Qwen3.6-35B-A3B-Uncensored-Claude-Genesis-Q8_0.gguf"
+    )
+    local_llm_timeout_seconds: float = float(os.getenv("LOCAL_LLM_TIMEOUT_SECONDS", "120"))
     kakao_js_key: str = os.getenv("KAKAO_JS_KEY", "")
     kakao_rest_key: str = os.getenv("KAKAO_REST_KEY", "")
 
