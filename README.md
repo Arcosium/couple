@@ -2,7 +2,7 @@
 
 오직 두 사람만 들어올 수 있는 작은 공간.
 D-day, 사진, 캘린더, 버킷리스트, 지도, 콕찌르기, 그리고 마스코트 토끼 **코코🐰**의
-오늘 코스 추천(Gemini)까지. 완전 단일 Python 서버 + 단일 SPA.
+오늘 코스 추천(로컬 LLM)까지. 완전 단일 Python 서버 + 단일 SPA.
 
 ## 빠른 시작 (로컬)
 
@@ -20,11 +20,17 @@ python3.11 -m uvicorn server:app --host 0.0.0.0 --port 8800 --reload
 |---|---|
 | `ALLOWED_EMAILS` | 들어올 수 있는 두 이메일 (쉼표로 구분) |
 | `SECRET_KEY` | 세션 서명 키 — `openssl rand -hex 32` |
-| `GEMINI_API_KEY` | https://aistudio.google.com/apikey |
+| `LOCAL_LLM_BASE_URL` | 로컬 OpenAI 호환 서버의 `/v1` 주소. 예: `http://127.0.0.1:8080/v1` |
+| `LOCAL_LLM_MODEL` | 선택. 기본값: `Qwen3.6-35B-A3B-Uncensored-Claude-Genesis-Q8_0.gguf` |
+| `LOCAL_LLM_TIMEOUT_SECONDS` | 선택. 로컬 모델 응답 제한 시간(기본 120초) |
 | `KAKAO_JS_KEY` | https://developers.kakao.com → 앱 → JavaScript 키 |
 | `ANNIVERSARY_DATE` | 만난 날 (YYYY-MM-DD) — 앱 설정에서도 변경 가능 |
 | `NICKNAME_A`, `NICKNAME_B` | 두 사람 닉네임 — 앱 설정에서 변경 가능 |
 | `SMTP_*` | (선택) 로그인 코드 이메일 발송. 비우면 `journalctl`에 코드 출력 |
+
+`LOCAL_LLM_BASE_URL`만 실제 로컬 서버 주소로 바꾸면 된다. 이 앱은 Gemini,
+OpenRouter, DeepSeek 등 외부 LLM 제공자의 키를 읽거나 전송하지 않는다. 카카오 지도·장소
+검색을 계속 쓸 경우에만 `KAKAO_*` 키가 별도로 필요하다.
 
 ## 배포 (cloudflared + systemd 패턴)
 
@@ -65,7 +71,7 @@ journalctl -u couple -f          # 라이브 로그 (로그인 코드도 여기 
 - **📅 캘린더** — 월별 그리드 + 일별 일정 리스트, 색상·시간·메모·리마인더(서버가 30초 단위로 폴링해 WebSocket 푸시).
 - **✨ 버킷리스트** — 이모지 아이콘 + 목표일, 탭으로 완료. 둘 중 한 명이 추가/완료하면 상대에게 실시간 알림.
 - **🗺️ 지도** — 카카오 지도 SDK, 다녀온/가볼 곳 필터, 우클릭(또는 long-press)으로 핀 추가.
-- **💬 코코 챗봇** — Gemini API. 시간대 맞춤 인삿말, 시간대 기반 제안 칩(아침/점심/저녁/심야), 대화 기록 보존.
+- **💬 코코 챗봇** — API 키 없이 로컬 OpenAI 호환 LLM을 사용. 시간대 맞춤 인삿말, 시간대 기반 제안 칩(아침/점심/저녁/심야), 대화 기록 보존.
 - **콕찌르기** — 미리 정의된 10가지 이모지(+커스텀 메시지), WebSocket으로 즉시 푸시. 브라우저 알림 + 진동.
 - **테마/마스코트** — 5가지 파스텔 테마(rosy/mint/butter/lavender/sky), 마스코트 종류.
 - **2인 전용 인증** — `.env`의 두 이메일만 통과, 6자리 코드 매직링크 90일 세션.
@@ -97,7 +103,7 @@ couple/
 │       ├── calendar_routes.py    (자동 done 처리)
 │       ├── bucket_routes.py
 │       ├── places_routes.py
-│       ├── chat_routes.py        (Gemini)
+│       ├── chat_routes.py        (로컬 OpenAI 호환 LLM)
 │       └── poke_routes.py
 ├── templates/
 │   ├── login.html            # 매직코드 로그인

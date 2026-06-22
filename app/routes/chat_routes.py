@@ -1,23 +1,25 @@
 """
-코코 챗봇 — Gemini Function Calling 으로 앱 데이터를 직접 조작.
+코코 챗봇 — 로컬 OpenAI 호환 LLM의 Function Calling으로 앱 데이터를 직접 조작.
 
 흐름:
 1. 사용자 메시지를 chat_messages 에 저장
-2. Gemini 호출 (도구 19개 노출)
+2. 로컬 LLM 호출 (도구 19개 노출)
 3. 응답에 function_call 이 있으면 → execute_tool 로 실행 → response 부분으로 다시 호출
 4. 최대 8회 반복 후 최종 텍스트를 chat_messages 에 저장
 5. 사용된 도구 목록을 함께 반환 (UI에서 ✨ 표시)
 """
+import json
 import secrets
 from datetime import datetime, timedelta, timezone
 
 KST = timezone(timedelta(hours=9))
 MASCOT_EMOJI = {"bunny": "🐰", "cat": "🐱", "bear": "🐻"}
 
+import httpx
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from ..agent_tools import TOOL_DECLARATIONS, _args_to_dict, execute_tool
+from ..agent_tools import TOOL_DECLARATIONS, execute_tool
 from ..auth import require_couple
 from ..config import settings as cfg
 from ..db import cursor, kv_get
@@ -121,102 +123,90 @@ def _save_msg(couple_id: int, session_id: str, role: str, content: str, email: s
         )
 
 
+def _chat_completions_url(base_url: str) -> str:
+    """LOCAL_LLM_BASE_URL은 /v1 루트 또는 완전한 chat/completions URL을 허용한다."""
+    base_url = base_url.rstrip("/")
+    return base_url if base_url.endswith("/chat/completions") else f"{base_url}/chat/completions"
+
+
+async def _local_completion(messages: list[dict], tools: list[dict]) -> dict:
+    """API 키 없이 로컬 OpenAI 호환 서버에 한 번 요청한다."""
+    payload = {
+        "model": cfg.local_llm_model,
+        "messages": messages,
+        "tools": tools,
+        "tool_choice": "auto",
+        "temperature": 0.7,
+    }
+    async with httpx.AsyncClient(timeout=cfg.local_llm_timeout_seconds) as client:
+        response = await client.post(_chat_completions_url(cfg.local_llm_base_url), json=payload)
+    response.raise_for_status()
+    return response.json()
+
+
 async def _ai_turn(user_email: str, couple_id: int, history: list[dict], message: str) -> tuple[str, list[str]]:
-    """대화 한 turn 처리 (google-genai SDK + manual function calling).
-    반환: (최종 텍스트, 사용된 도구 이름 목록)."""
-    if not cfg.gemini_api_key:
+    """로컬 OpenAI 호환 모델로 한 turn 처리. 반환: (텍스트, 사용 도구)."""
+    if not cfg.local_llm_base_url:
         return (
-            "(아직 Gemini API 키가 안 들어와서 데모 답변이야. "
-            "`.env` 의 GEMINI_API_KEY 채우고 서비스 재시작해줘) "
+            "(로컬 모델 서버 주소가 아직 설정되지 않았어. "
+            "`.env`에 LOCAL_LLM_BASE_URL을 넣고 서비스 재시작해줘) "
             "오늘은 둘이 가까운 카페에서 디저트 어때? ☕💖",
             [],
         )
 
-    from google import genai
-    from google.genai import types
-
-    client = genai.Client(api_key=cfg.gemini_api_key)
-
-    today = datetime.now(KST).strftime("%Y-%m-%d (%a) %H:%M")   # KST 기준 현재시각
-    sys_with_date = SYSTEM_PROMPT + f"\n\n[현재 시각] {today}"
-
-    # 도구 선언을 새 SDK 타입으로
-    tools = [types.Tool(function_declarations=TOOL_DECLARATIONS[0]["function_declarations"])]
-
-    config = types.GenerateContentConfig(
-        system_instruction=sys_with_date,
-        tools=tools,
-        temperature=0.7,
-    )
-
-    # 과거 대화 → google-genai 형식
-    gemini_history = []
-    for m in history:
-        role = "user" if m["role"] == "user" else "model"
-        gemini_history.append(types.Content(
-            role=role,
-            parts=[types.Part.from_text(text=m["content"])],
-        ))
-
-    chat = client.aio.chats.create(
-        model=cfg.gemini_model,
-        config=config,
-        history=gemini_history,
-    )
+    today = datetime.now(KST).strftime("%Y-%m-%d (%a) %H:%M")
+    tools = [{"type": "function", "function": declaration}
+             for declaration in TOOL_DECLARATIONS[0]["function_declarations"]]
+    messages = [{"role": "system", "content": SYSTEM_PROMPT + f"\n\n[현재 시각] {today}"}]
+    messages.extend({"role": "user" if m["role"] == "user" else "assistant", "content": m["content"]}
+                    for m in history)
+    messages.append({"role": "user", "content": message})
 
     try:
-        response = await chat.send_message(message)
+        response = await _local_completion(messages, tools)
     except Exception as e:
         return (f"🥹 (코코가 잠깐 멍해졌어 — {e.__class__.__name__}: {e})", [])
 
     tools_used: list[str] = []
+    final = ""
     for it in range(5):
-        # function_call 파트 추출
-        fcs = []
         try:
-            parts = response.candidates[0].content.parts or []
-            print(f"[chat iter {it}] parts={len(parts)}", flush=True)
-            for i, part in enumerate(parts):
-                txt = (part.text or "")[:80] if hasattr(part, "text") else ""
-                fc_name = part.function_call.name if part.function_call else ""
-                print(f"  part[{i}] text={txt!r} fc={fc_name!r}", flush=True)
-        except Exception as e:
-            print(f"[chat iter {it}] err: {e}", flush=True)
-            parts = []
+            assistant_message = response["choices"][0]["message"]
+            tool_calls = assistant_message.get("tool_calls") or []
+        except (KeyError, IndexError, TypeError) as e:
+            print(f"[chat iter {it}] invalid response: {e}", flush=True)
+            return ("🥹 (로컬 모델 응답 형식이 올바르지 않아. 서버 로그를 확인해줘)", tools_used)
 
-        for part in parts:
-            if part.function_call and part.function_call.name:
-                fcs.append(part.function_call)
-
-        if not fcs:
+        if not tool_calls:
+            final = assistant_message.get("content") or ""
             break
 
-        # 모든 호출 실행
-        response_parts = []
-        for fc in fcs:
-            name = fc.name
-            args = dict(fc.args) if fc.args else {}
-            result = await execute_tool(name, args, user_email, couple_id)
+        messages.append({"role": "assistant", "content": assistant_message.get("content") or "",
+                         "tool_calls": tool_calls})
+        for call in tool_calls:
+            function = call.get("function") or {}
+            name = function.get("name", "")
+            args: dict = {}
+            try:
+                raw_args = function.get("arguments") or "{}"
+                args = raw_args if isinstance(raw_args, dict) else json.loads(raw_args)
+                if not isinstance(args, dict):
+                    raise ValueError("arguments must be an object")
+            except (TypeError, ValueError, json.JSONDecodeError) as e:
+                result = {"error": f"invalid tool arguments: {e}"}
+            else:
+                result = await execute_tool(name, args, user_email, couple_id)
             tools_used.append(name)
             print(f"[chat tool] {name}({args}) → {str(result)[:200]}", flush=True)
-            response_parts.append(types.Part.from_function_response(
-                name=name, response={"result": result}
-            ))
+            messages.append({"role": "tool", "tool_call_id": call.get("id", name), "name": name,
+                             "content": json.dumps(result, ensure_ascii=False, default=str)})
 
         try:
-            response = await chat.send_message(response_parts)
+            response = await _local_completion(messages, tools)
         except Exception as e:
             return (f"🥹 (도구 결과 전달 실패: {e.__class__.__name__}: {e})", tools_used)
 
-    # 최종 텍스트 추출
-    final = ""
-    try:
-        if response.text:
-            final = response.text
-    except Exception:
-        pass
     if not final:
-        # 텍스트 없이 끝났을 때 — 일반적으론 도구만 부르고 멈춘 경우
         final = "처리됐어 🐰" if tools_used else "(코코가 할 말을 못 찾았어 🥺 다시 말해줄래?)"
     return (final, tools_used)
 
