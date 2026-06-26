@@ -28,12 +28,12 @@ class Settings:
 
     secret_key: str = os.getenv("SECRET_KEY", "dev-insecure-change-me")
 
-    # OpenAI 호환 로컬 서버 주소. 예: http://127.0.0.1:8080/v1
+    # OpenAI 호환 로컬 서버 주소. 이 머신은 Ollama가 11434 포트에서 /v1 을 제공한다.
+    # .env 의 LOCAL_LLM_BASE_URL 이 우선이며, 없으면 아래 기본값으로도 동작한다.
     # 인증 헤더나 API 키는 보내지 않는다.
-    local_llm_base_url: str = os.getenv("LOCAL_LLM_BASE_URL", "")
-    local_llm_model: str = os.getenv(
-        "LOCAL_LLM_MODEL", "Qwen3.6-35B-A3B-Uncensored-Claude-Genesis-Q8_0.gguf"
-    )
+    local_llm_base_url: str = os.getenv("LOCAL_LLM_BASE_URL", "http://127.0.0.1:11434/v1")
+    # 모델 id 는 `curl -s <base_url>/models` 의 data[].id 와 정확히 일치해야 한다.
+    local_llm_model: str = os.getenv("LOCAL_LLM_MODEL", "qwen3.6-35b-a3b-uncensored")
     local_llm_timeout_seconds: float = float(os.getenv("LOCAL_LLM_TIMEOUT_SECONDS", "120"))
     kakao_js_key: str = os.getenv("KAKAO_JS_KEY", "")
     kakao_rest_key: str = os.getenv("KAKAO_REST_KEY", "")

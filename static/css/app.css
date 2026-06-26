@@ -233,6 +233,16 @@ body {
 }
 .cal-cell.other-month { opacity:.4; }
 .cal-cell.has-event { border-color: rgb(var(--r400) / .45); }
+.cal-cell.has-note { background: rgb(var(--r300) / .22); }
+.cal-cell.today.has-note { background: linear-gradient(135deg,rgb(var(--r300)) 0%,rgb(var(--r500)) 100%); }
+.cal-cell .cal-note {
+  width:100%; margin-top:2px;
+  font-size:9px; line-height:1.15;
+  color:rgb(var(--r700));
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.cal-cell .cal-note .cal-note-mark { margin-right:1px; }
+.cal-cell.today .cal-note { color:rgba(255,255,255,.92); }
 .cal-cell .dot {
   width:5px; height:5px; border-radius:999px; background:rgb(var(--r500)); display:inline-block;
 }

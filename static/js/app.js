@@ -117,6 +117,7 @@ function appState() {
     // 오늘 한마디 — 캘린더는 선택일(dayNotes), 홈 위젯은 오늘(homeNote)
     dayNotes: { mine: '', partner: null, loading: false, isAnniv: false },
     homeNote: { mine: '', partner: null },
+    notesByDate: {},                    // 캘린더 셀 표시용: { 'YYYY-MM-DD': [{content, mine, ...}] }
     // 온보딩 — 신규 커플 만난날짜·생일·닉네임
     isMemberA: false,
     onboarding: { open: false, anniversary: '', birthday: '', nickname: '', saving: false },
@@ -241,6 +242,7 @@ function appState() {
           key: iso, iso, day, inMonth,
           isToday: iso === todayIso,
           events: byDate[iso] || [],
+          notes: this.notesByDate[iso] || [],   // 그 날 기록된 오늘 한마디
         });
       }
       return cells;
@@ -266,6 +268,7 @@ function appState() {
         this.loadDDay(),
         this.refreshPhotos(),
         this.refreshEvents(),
+        this.refreshNotes(),
         this.refreshBucket(),
         this.refreshPlaces(),
         this.loadPokePresets(),
@@ -422,6 +425,13 @@ function appState() {
     async refreshEvents() {
       this.events = await api('/api/events');
     },
+    // 캘린더 셀에 날짜별 오늘 한마디를 표시하기 위해 커플 전체 한마디를 한 번에 적재.
+    async refreshNotes() {
+      const rows = await api('/api/notes/all');
+      const map = {};
+      for (const r of rows) (map[r.date] = map[r.date] || []).push(r);
+      this.notesByDate = map;
+    },
     calPrev() {
       this.cal.month -= 1;
       if (this.cal.month < 0) { this.cal.month = 11; this.cal.year -= 1; }
@@ -461,6 +471,7 @@ function appState() {
       await api('/api/notes', { method: 'PUT',
         body: JSON.stringify({ date: this.calSelected, content: this.dayNotes.mine }) });
       await this.loadDayNote();
+      this.refreshNotes();
       if (this.calSelected === today()) Object.assign(this.homeNote, await this._fetchNote(today()));
       this.pushToast('✏️', '오늘 한마디 저장');
     },
@@ -471,6 +482,7 @@ function appState() {
       await api('/api/notes', { method: 'PUT',
         body: JSON.stringify({ date: today(), content: this.homeNote.mine }) });
       await this.loadHomeNote();
+      this.refreshNotes();
       if (this.calSelected === today()) await this.loadDayNote();
       this.pushToast('✏️', '오늘 한마디 저장');
     },
@@ -1111,6 +1123,7 @@ function appState() {
         this.refreshPlaces();
       } else if (d.kind === 'note') {
         this.pushToast('✏️', `${this.nicks.partner}님 오늘 한마디`);
+        this.refreshNotes();
         if (d.date === today()) this.loadHomeNote();
         if (d.date === this.calSelected) this.loadDayNote();
       }
