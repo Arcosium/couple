@@ -274,9 +274,16 @@
               'today': cell.isToday,
               'other-month': !cell.inMonth,
               'has-event': cell.events.length>0,
+              'has-note': cell.notes.length>0,
               'ring-2 ring-rose-400': cell.iso===calSelected,
             }">
             <span class="font-semibold" x-text="cell.day"></span>
+            <!-- 오늘 한마디 미리보기 (있으면): ✏️ + 잘린 텍스트 -->
+            <template x-if="cell.notes.length>0">
+              <div class="cal-note" :title="cell.notes.map(n=>n.content).join(' / ')">
+                <span class="cal-note-mark">✏️</span><span x-text="cell.notes.map(n=>n.content).join(' / ')"></span>
+              </div>
+            </template>
             <div class="flex gap-0.5 mt-auto flex-wrap">
               <template x-for="e in cell.events.slice(0,3)" :key="e.id">
                 <span class="dot" :style="`background:${e.color || '#ec4899'}`"></span>

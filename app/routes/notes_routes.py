@@ -23,6 +23,23 @@ def _valid_date(d: str) -> bool:
         return False
 
 
+@router.get("/all")
+def all_notes(request: Request):
+    """커플의 모든 오늘 한마디 — 캘린더 셀에 날짜별로 표시하기 위함.
+
+    /api/events 와 동일하게 커플 전체를 한 번에 내려준다(2인 앱이라 양 적음).
+    각 행에 요청자 기준 mine 플래그를 붙여 프런트가 내/상대를 구분한다.
+    """
+    email, cid = require_couple(request)
+    with cursor() as cur:
+        rows = [dict(r) for r in cur.execute(
+            "SELECT author_email, date, content, updated_at FROM daily_notes "
+            "WHERE couple_id=? ORDER BY date ASC", (cid,)).fetchall()]
+    for r in rows:
+        r["mine"] = (r["author_email"] == email)
+    return rows
+
+
 @router.get("")
 def get_notes(request: Request, date: str):
     email, cid = require_couple(request)

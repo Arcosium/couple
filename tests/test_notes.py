@@ -64,6 +64,20 @@ def test_couple_isolated():
     assert g["mine"] is None and g["partner"] is None
 
 
+def test_all_returns_couple_notes_with_mine_flag():
+    _match("n15@t", "n16@t")
+    client.put("/api/notes", json={"date": "2026-06-12", "content": "내 한마디"}, headers=_h("n15@t"))
+    client.put("/api/notes", json={"date": "2026-06-13", "content": "상대 한마디"}, headers=_h("n16@t"))
+    rows = client.get("/api/notes/all", headers=_h("n15@t")).json()
+    by_date = {r["date"]: r for r in rows}
+    assert by_date["2026-06-12"]["content"] == "내 한마디" and by_date["2026-06-12"]["mine"] is True
+    assert by_date["2026-06-13"]["content"] == "상대 한마디" and by_date["2026-06-13"]["mine"] is False
+    # 커플 격리: 다른 커플은 못 봄
+    _match("n17@t", "n18@t")
+    other = client.get("/api/notes/all", headers=_h("n17@t")).json()
+    assert all(r["date"] not in ("2026-06-12", "2026-06-13") for r in other) or other == []
+
+
 def test_unmatched_409_and_bad_date_400():
     with db.cursor() as cur:
         cur.execute("INSERT INTO users (email, couple_id) VALUES ('lone2@t', NULL) "
