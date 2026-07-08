@@ -218,6 +218,8 @@ body {
 }
 .cal-cell {
   aspect-ratio: 1/1.05;
+  min-width: 0;        /* 7×1fr 트랙이 컨테이너 폭에 맞게 줄어들도록(그리드 아이템 기본 min-width:auto 해제) */
+  overflow: hidden;    /* nowrap 인 .cal-note 가 셀 min-content 폭을 키워 오른쪽으로 삐져나오는 것 방지 */
   border-radius:.85rem; padding:.35rem .4rem;
   background: rgba(255,255,255,.55);
   border:1px solid rgb(var(--r400) / .12);
