@@ -67,6 +67,37 @@ async def kakao_search(query: str, **_) -> dict:
         return {"error": f"kakao_search failed: {e}"}
 
 
+# ── 관광 스냅샷(한국관광공사 TourAPI, 오프라인) ─────────────
+async def tour_search(keyword: str = "", area: str = "", kind: str = "", limit: int = 8, **_) -> dict:
+    """전국 관광지·문화시설·여행코스·레포츠 코퍼스(사진·좌표 포함) 오프라인 검색.
+    의미검색은 opt-in(COUPLE_SEMANTIC=1) — POI ~2만건 첫 색인 지연 때문(임베딩은 bake 권장)."""
+    import os
+    from . import tour_data
+    try:
+        if os.getenv("COUPLE_SEMANTIC", "0") == "1" and (keyword or "").strip():
+            results = tour_data.semantic_pois(query=keyword, area=area, kind=kind, limit=limit)
+        else:
+            results = tour_data.search_pois(keyword=keyword, area=area, kind=kind, limit=limit)
+    except Exception:
+        results = tour_data.search_pois(keyword=keyword, area=area, kind=kind, limit=limit)
+    if not results:
+        return {"results": [], "note": "관광 코퍼스에 매칭 없음(다른 지역/키워드로 다시 시도하거나 kakao_search 사용)"}
+    return {"results": results}
+
+
+async def list_festivals(area: str = "", keyword: str = "", days: int = 0, limit: int = 8, **_) -> dict:
+    """앞으로 열리는(또는 진행 중인) 축제. days=7 이면 이번 주 이내.
+    keyword 가 자연어면 의미검색으로 찾는다('바다 근처 조용한 축제'). 실패 시 부분일치 폴백."""
+    from . import tour_data
+    try:
+        festivals = tour_data.semantic_festivals(query=keyword, area=area, days=days, limit=limit)
+    except Exception:
+        festivals = tour_data.upcoming_festivals(area=area, keyword=keyword, days=days, limit=limit)
+    if not festivals:
+        return {"festivals": [], "note": "해당 조건의 예정 축제 없음"}
+    return {"festivals": festivals}
+
+
 # ── PLACES ───────────────────────────────────────────
 async def add_place(user_email: str, couple_id: int, name: str, kind: str, lat: float, lng: float,
                     address: str = "", category: str = "", memo: str = "", **_) -> dict:
@@ -321,6 +352,8 @@ async def update_settings(user_email: str, couple_id: int, **kw) -> dict:
 # ── DISPATCH ─────────────────────────────────────────
 TOOL_DISPATCH = {
     "kakao_search": kakao_search,
+    "tour_search": tour_search,
+    "list_festivals": list_festivals,
     "add_place": add_place,
     "list_places": list_places,
     "update_place": update_place,
@@ -375,6 +408,32 @@ TOOL_DECLARATIONS = [{
                               "description": "Korean keyword, e.g. '홍대 정스버거', '제주 흑돼지'"}
                 },
                 "required": ["query"],
+            },
+        },
+        {
+            "name": "tour_search",
+            "description": "Search Korea's official tourism corpus (한국관광공사 TourAPI, offline snapshot) for 관광지/문화시설/여행코스/레포츠 nationwide — each with photo, area, and coordinates. Prefer this over kakao_search for TRIP/sightseeing destinations ('제주 가볼 만한 곳', '강릉 여행', '경주 관광지', '실내 데이트 문화시설'). Use kakao_search instead for a specific local shop/cafe/restaurant name. Results include lat/lng so you can add_place directly.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "keyword": {"type": "string", "description": "제목/주소 부분일치. 예: '해수욕장', '미술관', '경복궁'"},
+                    "area": {"type": "string", "description": "광역지역명으로 좁히기. 예: '서울','경기','제주','강원','부산'"},
+                    "kind": {"type": "string", "enum": ["관광지", "문화시설", "여행코스", "레포츠"]},
+                    "limit": {"type": "integer"},
+                },
+            },
+        },
+        {
+            "name": "list_festivals",
+            "description": "List upcoming (or currently ongoing) festivals from the official tourism snapshot, each with period·area·photo·coordinates. Use for '이번 주말 뭐하지', '근처에 축제 있어?', or to weave a seasonal festival into a date course. Pass days=7 for this week, area to localize (e.g. '서울','경기'). After suggesting, you can add_event for the date and add_place(kind='wishlist') for the spot.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "area": {"type": "string", "description": "광역지역명. 예: '서울','경기','강원'"},
+                    "keyword": {"type": "string", "description": "축제명 부분일치. 예: '불꽃','벚꽃','커피'"},
+                    "days": {"type": "integer", "description": "오늘부터 N일 이내 시작하는 축제만. 이번 주=7, 이번 달=30. 0=제한없음"},
+                    "limit": {"type": "integer"},
+                },
             },
         },
         {
