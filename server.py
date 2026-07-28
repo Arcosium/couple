@@ -224,4 +224,4 @@ async def _startup():
 async def _not_found(req: Request, exc):
     if req.url.path.startswith("/api/"):
         return JSONResponse({"detail": "not_found"}, status_code=404)
-    return await index(req)
+    return index(req)  # index() 는 동기 함수 — await 하면 TypeError → 모든 404 가 500
