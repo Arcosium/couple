@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 
-from PIL import Image, ExifTags
+from PIL import Image, ImageOps, ExifTags
 import piexif
 
 from ..auth import require_couple
@@ -17,6 +17,50 @@ router = APIRouter(prefix="/api/photos", tags=["photos"])
 
 ALLOWED_EXT = {".jpg", ".jpeg", ".png", ".heic", ".webp", ".gif"}
 MAX_BYTES = 25 * 1024 * 1024  # 25MB
+MAX_SIDE = 2560               # 원본 저장 시 긴 변 상한 (그 이상은 재인코딩해 용량↓)
+THUMB_SIDE = 480              # 추억 탭 그리드용 썸네일
+THUMBS_DIR = settings.uploads_dir / "thumbs"
+# 사진 id 는 유일하고 파일 내용은 변하지 않는다 → 영구 캐시(재방문 시 재다운로드 없음).
+IMG_CACHE = {"Cache-Control": "private, max-age=31536000, immutable"}
+
+
+def _shrink(raw: bytes, side: int, quality: int) -> bytes | None:
+    """긴 변을 side 이하로 줄여 JPEG 로 재인코딩. 실패하면 None."""
+    try:
+        with Image.open(io.BytesIO(raw)) as im:
+            im = ImageOps.exif_transpose(im)   # 재인코딩하면 EXIF 회전정보가 사라진다
+            im.thumbnail((side, side))
+            buf = io.BytesIO()
+            im.convert("RGB").save(buf, "JPEG", quality=quality, optimize=True)
+            return buf.getvalue()
+    except Exception:
+        return None
+
+
+def _thumb_path(pid: str) -> Path:
+    return THUMBS_DIR / f"{pid}.jpg"
+
+
+def _purge(pid: str, filename: str) -> None:
+    """원본 + 썸네일을 함께 지운다(삭제 경로가 둘이라 여기 한 곳으로 모은다)."""
+    for p in (settings.uploads_dir / filename, _thumb_path(pid)):
+        try:
+            p.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+def _ensure_thumb(pid: str, src: Path) -> Path | None:
+    """썸네일이 없으면 원본에서 만들어 캐시. 기존 사진도 첫 조회 때 자동 생성된다."""
+    tp = _thumb_path(pid)
+    if tp.exists():
+        return tp
+    data = _shrink(src.read_bytes(), THUMB_SIDE, 72)
+    if not data:
+        return None
+    THUMBS_DIR.mkdir(parents=True, exist_ok=True)
+    tp.write_bytes(data)
+    return tp
 
 
 def _parse_exif(raw: bytes) -> tuple[str | None, float | None, float | None, int, int]:
@@ -75,11 +119,23 @@ async def upload(
     if len(raw) > MAX_BYTES:
         raise HTTPException(status_code=413, detail="too_large")
     pid = secrets.token_urlsafe(10)
+
+    # EXIF(촬영시각·GPS)는 재인코딩 전 원본에서 먼저 뽑는다.
+    exif_taken, exif_lat, exif_lng, w, h = _parse_exif(raw)
+
+    # 긴 변이 MAX_SIDE 를 넘으면 축소 저장(화질보다 로딩 속도 우선). GIF 는 애니메이션 보존.
+    if ext != ".gif" and max(w, h) > MAX_SIDE and (small := _shrink(raw, MAX_SIDE, 85)):
+        raw, ext = small, ".jpg"
+        with Image.open(io.BytesIO(raw)) as im:
+            w, h = im.size
+
     fname = f"{pid}{ext}"
     settings.uploads_dir.mkdir(parents=True, exist_ok=True)
     (settings.uploads_dir / fname).write_bytes(raw)
+    if (thumb := _shrink(raw, THUMB_SIDE, 72)):
+        THUMBS_DIR.mkdir(parents=True, exist_ok=True)
+        _thumb_path(pid).write_bytes(thumb)
 
-    exif_taken, exif_lat, exif_lng, w, h = _parse_exif(raw)
     final_taken = taken_at or exif_taken or datetime.utcnow().isoformat(timespec="seconds")
     final_lat = lat if lat is not None else exif_lat
     final_lng = lng if lng is not None else exif_lng
@@ -101,6 +157,7 @@ async def upload(
         "ok": True,
         "id": pid,
         "url": f"/api/photos/file/{pid}",
+        "thumb_url": f"/api/photos/file/{pid}?thumb=1",
         "taken_at": final_taken,
         "lat": final_lat,
         "lng": final_lng,
@@ -135,6 +192,7 @@ def list_photos(
         rows = [dict(r) for r in cur.execute(sql, args).fetchall()]
     for r in rows:
         r["url"] = f"/api/photos/file/{r['id']}"
+        r["thumb_url"] = f"/api/photos/file/{r['id']}?thumb=1"
     return rows
 
 
@@ -152,7 +210,7 @@ def photo_places(request: Request):
 
 
 @router.get("/file/{pid}")
-def get_file(pid: str, request: Request):
+def get_file(pid: str, request: Request, thumb: int = 0):
     _email, cid = require_couple(request)
     with cursor() as cur:
         row = cur.execute("SELECT filename FROM photos WHERE id=? AND couple_id=?",
@@ -162,7 +220,9 @@ def get_file(pid: str, request: Request):
     fpath = settings.uploads_dir / row["filename"]
     if not fpath.exists():
         raise HTTPException(status_code=404, detail="missing_file")
-    return FileResponse(fpath)
+    if thumb:
+        fpath = _ensure_thumb(pid, fpath) or fpath
+    return FileResponse(fpath, headers=IMG_CACHE)
 
 
 @router.patch("/{pid}")
@@ -195,7 +255,7 @@ async def bulk_delete(request: Request):
     placeholders = ",".join("?" * len(ids))
     with cursor() as cur:
         rows = cur.execute(
-            f"SELECT filename FROM photos WHERE id IN ({placeholders}) AND couple_id=?",
+            f"SELECT id, filename FROM photos WHERE id IN ({placeholders}) AND couple_id=?",
             ids + [cid],
         ).fetchall()
         cur.execute(
@@ -203,10 +263,7 @@ async def bulk_delete(request: Request):
             ids + [cid],
         )
     for r in rows:
-        try:
-            (settings.uploads_dir / r["filename"]).unlink(missing_ok=True)
-        except Exception:
-            pass
+        _purge(r["id"], r["filename"])
     return {"ok": True, "deleted": len(rows)}
 
 
@@ -243,8 +300,5 @@ def delete(pid: str, request: Request):
         if not row:
             raise HTTPException(status_code=404, detail="not_found")
         cur.execute("DELETE FROM photos WHERE id=? AND couple_id=?", (pid, cid))
-    try:
-        (settings.uploads_dir / row["filename"]).unlink(missing_ok=True)
-    except Exception:
-        pass
+    _purge(pid, row["filename"])
     return {"ok": True}

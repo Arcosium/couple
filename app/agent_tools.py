@@ -303,10 +303,8 @@ async def delete_photo(user_email: str, couple_id: int, photo_id: str, **_) -> d
         if not row:
             return {"error": "photo not found"}
         cur.execute("DELETE FROM photos WHERE id=? AND couple_id=?", (photo_id, couple_id))
-    try:
-        (settings.uploads_dir / row["filename"]).unlink(missing_ok=True)
-    except Exception:
-        pass
+    from .routes.photos_routes import _purge      # 원본+썸네일 정리는 한 곳에서
+    _purge(photo_id, row["filename"])
     return {"ok": True}
 
 

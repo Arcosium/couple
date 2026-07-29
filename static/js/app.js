@@ -564,6 +564,10 @@ function appState() {
     },
 
     /* ── 버킷리스트 ──────────────────────────────────────── */
+    /* 서버가 done ASC 로 정렬해 주므로 이룬 건 자연히 아래로 간다.
+       화면에선 ArcAI.ve 할일 패널처럼 '남은 것 / 완료(n)' 두 묶음으로 나눠 보여준다. */
+    get bucketTodo() { return this.bucket.filter(b => !b.done); },
+    get bucketDone() { return this.bucket.filter(b => b.done); },
     async refreshBucket() { this.bucket = await api('/api/bucket'); },
     openBucketForm() {
       this.bucketForm = { open: true, id: null, title: '', description: '', icon: '💖', target_date: '' };
@@ -593,6 +597,7 @@ function appState() {
       b.done = !b.done;
       await api(`/api/bucket/${b.id}`, { method: 'PATCH', body: JSON.stringify({ done: b.done }) });
       if (b.done) this.pushToast('💖', '둘이 하나 더 이뤘다!', b.title);
+      await this.refreshBucket();   // 서버 정렬을 다시 받아 완료된 건 아래로 내려보낸다
     },
     async deleteBucket(b) {
       if (!confirm('이 버킷을 지울까요?')) return;
@@ -940,7 +945,8 @@ function appState() {
       const msg = (this.chat.input || '').trim();
       if (!msg) return;
       this.chat.input = '';
-      this.chat.messages.push({ id: 'u' + Date.now(), role: 'user', content: msg, user_email: this.me });
+      this.chat.messages.push({ id: 'u' + Date.now(), role: 'user', content: msg, user_email: this.me,
+                                created_at: new Date().toISOString() });
       this.chat.thinking = true;
       this.$nextTick(() => this.scrollChat());
       try {
@@ -951,6 +957,7 @@ function appState() {
         this.chat.messages.push({
           id: 'b' + Date.now(), role: 'assistant',
           content: j.reply, tools: j.tools_used || [],
+          created_at: new Date().toISOString(),
         });
         // 도구가 데이터를 바꿨으면 본인 화면도 갱신
         if ((j.tools_used || []).length) {
@@ -992,6 +999,15 @@ function appState() {
     bubbleClass(m) {
       if (m.role === 'assistant') return 'bot';
       return (m.user_email && m.user_email !== this.me) ? 'peer' : 'user';
+    },
+    /* 말풍선 옆 시각. 서버는 tz 없이(=서버 로컬시각) 저장하고, 낙관적 push 는 'Z'(UTC)라
+       둘 다 Date 가 알아서 로컬로 해석한다. 오늘이 아니면 날짜도 함께 보여준다. */
+    msgTime(iso) {
+      if (!iso) return '';
+      const d = new Date(String(iso).replace(' ', 'T'));
+      if (isNaN(d)) return '';
+      const t = d.toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit' });
+      return d.toDateString() === new Date().toDateString() ? t : `${d.getMonth() + 1}/${d.getDate()} ${t}`;
     },
 
     /* ── 콕찌르기 ────────────────────────────────────────── */
