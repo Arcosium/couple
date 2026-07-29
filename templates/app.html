@@ -239,7 +239,7 @@
         <div class="photo-tile" :class="photoSelect && isPhotoSelected(p) && 'sel'"
           @click="photoSelect ? togglePhotoSel(p) : openPhoto(p)">
           <span x-show="photoSelect" class="selmark" x-text="isPhotoSelected(p) ? '✓' : ''"></span>
-          <img :src="p.url" :alt="p.caption || '사진'" loading="lazy" />
+          <img :src="p.thumb_url || p.url" :alt="p.caption || '사진'" loading="lazy" decoding="async" />
           <div class="meta">
             <p x-show="p.place_name" x-text="p.place_name"></p>
             <p x-show="p.taken_at" x-text="formatDate(p.taken_at)"></p>
@@ -350,18 +350,41 @@
         <div class="empty"><div class="emoji">🌟</div>둘이서 하고 싶은 것들을 적어봐!</div>
       </template>
       <ul class="space-y-2">
-        <template x-for="b in bucket" :key="b.id">
-          <li class="bucket-card" :class="{done: b.done}">
-            <button @click="toggleBucket(b)" class="text-2xl shrink-0" x-text="b.icon || '💖'" title="완료 토글"></button>
+        <template x-for="b in bucketTodo" :key="b.id">
+          <li class="bucket-card">
+            <span class="text-2xl shrink-0" x-text="b.icon || '💖'"></span>
             <button type="button" @click="editBucket(b)" class="flex-1 min-w-0 text-left" title="눌러서 수정">
               <p class="title font-medium text-rose-900" x-text="b.title"></p>
               <p x-show="b.description" class="text-xs text-rose-700/70 mt-0.5" x-text="b.description"></p>
               <p x-show="b.target_date" class="text-[11px] text-rose-500 mt-0.5">📌 <span x-text="b.target_date"></span></p>
             </button>
+            <button @click="toggleBucket(b)" class="btn btn-primary py-1 px-3 text-xs shrink-0">✓ 달성</button>
             <button @click="deleteBucket(b)" class="text-rose-400 hover:text-rose-600 text-sm shrink-0">×</button>
           </li>
         </template>
       </ul>
+
+      <!-- 이룬 것들 — 아래로 내려간다 -->
+      <template x-if="bucketDone.length">
+        <div class="mt-4">
+          <p class="text-xs font-semibold text-rose-700/60 mb-2 px-1">
+            이룬 것 (<span x-text="bucketDone.length"></span>) 🎉
+          </p>
+          <ul class="space-y-2">
+            <template x-for="b in bucketDone" :key="b.id">
+              <li class="bucket-card done">
+                <span class="text-2xl shrink-0" x-text="b.icon || '💖'"></span>
+                <button type="button" @click="editBucket(b)" class="flex-1 min-w-0 text-left" title="눌러서 수정">
+                  <p class="title font-medium text-rose-900" x-text="b.title"></p>
+                  <p x-show="b.done_at" class="text-[11px] text-rose-500 mt-0.5">🎊 <span x-text="formatDate(b.done_at)"></span> 달성</p>
+                </button>
+                <button @click="toggleBucket(b)" class="btn btn-soft py-1 px-3 text-xs shrink-0">되돌리기</button>
+                <button @click="deleteBucket(b)" class="text-rose-400 hover:text-rose-600 text-sm shrink-0">×</button>
+              </li>
+            </template>
+          </ul>
+        </div>
+      </template>
     </div>
   </section>
 
@@ -460,7 +483,10 @@
         </div>
         <template x-for="m in chat.messages" :key="m.id">
           <div class="flex flex-col" :class="bubbleClass(m)==='user' ? 'items-end' : 'items-start'">
-            <span class="msg-who" x-text="senderLabel(m)"></span>
+            <span class="msg-who">
+              <span x-text="senderLabel(m)"></span>
+              <span class="msg-time" x-text="msgTime(m.created_at)"></span>
+            </span>
             <div class="bubble" :class="bubbleClass(m)" x-html="mdLite(m.content)"></div>
             <template x-if="m.tools && m.tools.length">
               <div class="mt-1 flex gap-1 flex-wrap">
@@ -557,7 +583,7 @@
 </main>
 
 <!-- ───── 콕찌르기 FAB ───── -->
-<button class="fab" @click="pokePicker=true" :class="pokeAnim && 'shake'" aria-label="콕찌르기">
+<button class="fab" @click="pokePicker=true; markPokesSeen()" :class="pokeAnim && 'shake'" aria-label="콕찌르기">
   💗
   <span class="badge" x-show="unreadPokes>0" x-text="unreadPokes"></span>
 </button>

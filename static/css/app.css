@@ -278,6 +278,7 @@ body {
   border:1px solid rgb(var(--r400) / .35); padding:.25rem .5rem; text-align:left; }
 .bubble .md-table th { background:rgb(var(--r100) / .8); font-weight:700; color:rgb(var(--r700)); }
 .msg-who { font-size:.68rem; font-weight:700; color:rgb(var(--r600)); margin:0 .35rem .1rem; }
+.msg-time { font-weight:500; color:rgb(var(--r600) / .6); margin-left:.3rem; }
 /* 챗 헤더 미니 마스코트 */
 .mascot-mini > span { display:grid; place-items:center; width:100%; height:100%; }
 .mascot-mini svg { width:42px; height:42px; }

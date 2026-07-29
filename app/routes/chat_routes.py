@@ -114,7 +114,7 @@ def _greeting(couple_id: int, user_email: str) -> str:
 def _load_history(couple_id: int, session_id: str, limit: int = 12) -> list[dict]:
     with cursor() as cur:
         rows = cur.execute(
-            "SELECT role, content, user_email FROM chat_messages "
+            "SELECT role, content, user_email, created_at FROM chat_messages "
             "WHERE couple_id=? AND session_id=? ORDER BY created_at DESC LIMIT ?",
             (couple_id, session_id, limit),
         ).fetchall()
