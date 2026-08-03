@@ -104,6 +104,7 @@ function appState() {
     photoLoading: false,
     photoPlaces: [],
     photoView: null,
+    photoTagInput: '',                  // 사진 뷰어의 태그 추가 입력
     photoSelect: false,                 // 다중 선택 모드
     photoSelected: [],                  // 선택된 사진 id 목록
     bulkPlaceForm: { open: false, place_name: '' },
@@ -189,7 +190,8 @@ function appState() {
       if (this.photoQuery) {
         const q = this.photoQuery.toLowerCase();
         arr = arr.filter(p => (p.caption || '').toLowerCase().includes(q)
-          || (p.place_name || '').toLowerCase().includes(q));
+          || (p.place_name || '').toLowerCase().includes(q)
+          || (p.tags || '').toLowerCase().includes(q));
       }
       if (this.photoPlace) arr = arr.filter(p => p.place_name === this.photoPlace);
       return arr;
@@ -358,7 +360,29 @@ function appState() {
       await this.refreshPhotos();
       this.pushToast('💖', `${arr.length}장 추가됐어!`);
     },
-    openPhoto(p) { this.photoView = { ...p }; },
+    openPhoto(p) { this.photoView = { ...p }; this.photoTagInput = ''; },
+    /* 태그: DB 엔 쉼표 구분 문자열, 화면엔 칩 */
+    photoTags(p) { return (p?.tags || '').split(',').map(t => t.trim()).filter(Boolean); },
+    async savePhotoTags(tags) {
+      const p = this.photoView;
+      const s = tags.join(',');
+      p.tags = s;
+      const idx = this.photos.findIndex(x => x.id === p.id);
+      if (idx >= 0) this.photos[idx] = { ...this.photos[idx], tags: s };
+      await api(`/api/photos/${p.id}`, { method: 'PATCH', body: JSON.stringify({ tags }) });
+    },
+    addPhotoTag() {
+      const tags = this.photoTags(this.photoView);
+      // 한 번에 여러 개(쉼표 구분)도 받아준다
+      for (const t of this.photoTagInput.split(',').map(x => x.trim().replace(/^#/, ''))) {
+        if (t && !tags.includes(t)) tags.push(t);
+      }
+      this.photoTagInput = '';
+      this.savePhotoTags(tags);
+    },
+    removePhotoTag(tag) {
+      this.savePhotoTags(this.photoTags(this.photoView).filter(t => t !== tag));
+    },
     async savePhotoMeta() {
       if (!this.photoView) return;
       const p = this.photoView;
@@ -1137,6 +1161,11 @@ function appState() {
       } else if (d.kind === 'place_deleted') {
         this.pushToast('🗑️', `장소 삭제됨`, d.name || '');
         this.refreshPlaces();
+      } else if (d.kind === 'photo_tagged') {
+        // 자동 태깅이 끝나면(업로드 몇 초 뒤) 화면을 새로고침 없이 갱신
+        const i = this.photos.findIndex(p => p.id === d.id);
+        if (i >= 0) this.photos[i] = { ...this.photos[i], tags: d.tags };
+        if (this.photoView?.id === d.id && !this.photoView.tags) this.photoView.tags = d.tags;
       } else if (d.kind === 'note') {
         this.pushToast('✏️', `${this.nicks.partner}님 오늘 한마디`);
         this.refreshNotes();
