@@ -242,6 +242,8 @@
           <img :src="p.thumb_url || p.url" :alt="p.caption || '사진'" loading="lazy" decoding="async" />
           <div class="meta">
             <p x-show="p.place_name" x-text="p.place_name"></p>
+            <p x-show="p.tags" class="truncate opacity-90"
+               x-text="photoTags(p).map(t => '#' + t).join(' ')"></p>
             <p x-show="p.taken_at" x-text="formatDate(p.taken_at)"></p>
           </div>
         </div>
@@ -649,6 +651,17 @@
     <div class="glass-strong p-4 space-y-2">
       <input x-model="photoView.caption" @change="savePhotoMeta()" placeholder="캡션…" class="input"/>
       <input x-model="photoView.place_name" @change="savePhotoMeta()" placeholder="장소 이름…" class="input"/>
+      <!-- 태그: 업로드 직후 로컬 AI 가 자동으로 붙이고, 여기서 지우거나 더할 수 있다 -->
+      <div class="flex flex-wrap items-center gap-1.5">
+        <template x-for="t in photoTags(photoView)" :key="t">
+          <span class="chip">#<span x-text="t"></span>
+            <button @click="removePhotoTag(t)" class="opacity-50 hover:opacity-100" title="태그 삭제">✕</button>
+          </span>
+        </template>
+        <span x-show="!photoTags(photoView).length" class="text-xs text-rose-700/50">🏷️ 태그 다는 중…</span>
+        <input x-model="photoTagInput" @keydown.enter.prevent="addPhotoTag()" @blur="photoTagInput && addPhotoTag()"
+          placeholder="+ 태그" class="input py-1 px-2 text-xs w-24 flex-none" />
+      </div>
       <div class="flex items-center gap-2 text-xs text-rose-700/70">
         <span x-show="photoView?.taken_at" x-text="'📅 ' + formatDate(photoView.taken_at)"></span>
         <span x-show="photoView?.lat" x-text="'📍 ' + (photoView.lat?.toFixed(4)) + ', ' + (photoView.lng?.toFixed(4))"></span>

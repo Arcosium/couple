@@ -72,7 +72,8 @@ CREATE TABLE IF NOT EXISTS photos (
     uploaded_at TEXT NOT NULL,
     width INTEGER,
     height INTEGER,
-    size_bytes INTEGER
+    size_bytes INTEGER,
+    tags TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_photos_time ON photos (taken_at);
 CREATE INDEX IF NOT EXISTS idx_photos_place ON photos (place_name);
@@ -243,6 +244,9 @@ def _migrate() -> None:
                 cur.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT")
         cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username "
                     "ON users (username) WHERE username IS NOT NULL")
+        # photos.tags (자동 태깅, 쉼표 구분)
+        if "tags" not in {r["name"] for r in cur.execute("PRAGMA table_info(photos)").fetchall()}:
+            cur.execute("ALTER TABLE photos ADD COLUMN tags TEXT")
         # events.end_date (기존 마이그레이션 유지)
         ev_cols = {r["name"] for r in cur.execute("PRAGMA table_info(events)").fetchall()}
         if "end_date" not in ev_cols:

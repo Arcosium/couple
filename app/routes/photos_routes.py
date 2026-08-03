@@ -12,6 +12,7 @@ import piexif
 from ..auth import require_couple
 from ..config import settings
 from ..db import cursor
+from ..photo_tagger import enqueue as enqueue_tagging
 
 router = APIRouter(prefix="/api/photos", tags=["photos"])
 
@@ -153,6 +154,9 @@ async def upload(
                 w, h, len(raw), cid,
             ),
         )
+    # 태깅은 썸네일로(작을수록 빠름). 백그라운드라 업로드 응답을 막지 않는다.
+    tp = _thumb_path(pid)
+    enqueue_tagging(pid, tp if tp.exists() else settings.uploads_dir / fname, cid)
     return {
         "ok": True,
         "id": pid,
@@ -176,8 +180,8 @@ def list_photos(
     sql = "SELECT * FROM photos WHERE 1=1 AND couple_id=?"
     args: list = [cid]
     if q:
-        sql += " AND (caption LIKE ? OR place_name LIKE ?)"
-        args.extend([f"%{q}%", f"%{q}%"])
+        sql += " AND (caption LIKE ? OR place_name LIKE ? OR tags LIKE ?)"
+        args.extend([f"%{q}%"] * 3)
     if place:
         sql += " AND place_name = ?"
         args.append(place)
@@ -231,7 +235,9 @@ async def edit(pid: str, request: Request):
     body = await request.json()
     fields = []
     args: list = []
-    for k in ("caption", "place_name", "lat", "lng", "taken_at"):
+    if isinstance(body.get("tags"), list):   # 프런트는 배열로 보낸다 → 저장은 쉼표 구분
+        body["tags"] = ",".join(str(t).strip() for t in body["tags"] if str(t).strip())
+    for k in ("caption", "place_name", "lat", "lng", "taken_at", "tags"):
         if k in body:
             fields.append(f"{k}=?")
             args.append(body[k])
