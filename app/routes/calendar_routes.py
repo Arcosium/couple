@@ -4,7 +4,7 @@ from datetime import datetime
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 
-from ..auth import require_user, partner_of
+from ..auth import require_couple, partner_of
 from ..db import cursor
 from ..realtime import hub
 
@@ -74,18 +74,19 @@ def _auto_complete_past(rows: list[dict]) -> bool:
 
 @router.get("")
 def list_events(request: Request):
-    require_user(request)
+    _email, cid = require_couple(request)
     with cursor() as cur:
         rows = [dict(r) for r in cur.execute(
-            "SELECT * FROM events ORDER BY due IS NULL, due ASC, time IS NULL, time ASC, created_at DESC"
-        ).fetchall()]
+            "SELECT * FROM events WHERE couple_id=? "
+            "ORDER BY due IS NULL, due ASC, time IS NULL, time ASC, created_at DESC",
+            (cid,)).fetchall()]
     _auto_complete_past(rows)
     return rows
 
 
 @router.post("")
 async def create(body: EventIn, request: Request):
-    user = require_user(request)
+    user, cid = require_couple(request)
     eid = str(int(_time.time() * 1000))
     if body.due:
         try:
@@ -102,11 +103,11 @@ async def create(body: EventIn, request: Request):
         cur.execute(
             """INSERT INTO events
                (id, title, due, end_date, time, note, color, source, done, reminder_minutes,
-                owner_email, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)""",
+                owner_email, couple_id, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)""",
             (
                 eid, body.title.strip(), body.due, end_date, body.time, body.note,
-                body.color, body.source, body.reminder_minutes, user,
+                body.color, body.source, body.reminder_minutes, user, cid,
                 datetime.now().strftime("%Y-%m-%d %H:%M"),
             ),
         )
@@ -118,7 +119,7 @@ async def create(body: EventIn, request: Request):
 
 @router.patch("/{eid}")
 async def patch(eid: str, body: EventPatch, request: Request):
-    user = require_user(request)
+    user, cid = require_couple(request)
     fields = []
     args: list = []
     for key in ("title", "due", "time", "note", "color", "reminder_minutes"):
@@ -136,8 +137,9 @@ async def patch(eid: str, body: EventPatch, request: Request):
     if not fields:
         return {"ok": True}
     args.append(eid)
+    args.append(cid)
     with cursor() as cur:
-        cur.execute(f"UPDATE events SET {', '.join(fields)} WHERE id=?", args)
+        cur.execute(f"UPDATE events SET {', '.join(fields)} WHERE id=? AND couple_id=?", args)
     if (p := partner_of(user)) and body.done:
         await hub.send(p, {"kind": "event_done", "by": user})
     return {"ok": True}
@@ -145,7 +147,7 @@ async def patch(eid: str, body: EventPatch, request: Request):
 
 @router.delete("/{eid}")
 def delete(eid: str, request: Request):
-    require_user(request)
+    _email, cid = require_couple(request)
     with cursor() as cur:
-        cur.execute("DELETE FROM events WHERE id=?", (eid,))
+        cur.execute("DELETE FROM events WHERE id=? AND couple_id=?", (eid, cid))
     return {"ok": True}

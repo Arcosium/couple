@@ -232,14 +232,10 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** WebView 안에 머물러야 하는 호스트(앱 + Cloudflare Access + Google OAuth IdP). */
+    /** WebView 안에 머물러야 하는 호스트(앱 도메인만 — 자체 로그인이라 외부 IdP 불필요). */
     private fun isInAppHost(host: String?): Boolean {
         val h = (host ?: return false).lowercase()
-        return h == "couple.ai-ve.uk" || h.endsWith(".couple.ai-ve.uk") ||
-            h.endsWith("cloudflareaccess.com") ||                 // Access 로그인/콜백
-            h == "accounts.google.com" || h.endsWith(".google.com") ||
-            h.endsWith(".gstatic.com") || h.endsWith(".googleusercontent.com") ||
-            h == "challenges.cloudflare.com"                      // Turnstile
+        return h == "couple.ai-ve.uk" || h.endsWith(".couple.ai-ve.uk")
     }
 
     /** 웹 → 네이티브 브리지. window.CoupleNative 로 노출된다.

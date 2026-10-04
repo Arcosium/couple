@@ -2,7 +2,7 @@ from datetime import date, datetime
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 
-from ..auth import require_user
+from ..auth import require_couple
 from ..config import settings as cfg
 from ..db import kv_get, kv_set
 
@@ -19,17 +19,16 @@ class SettingsPatch(BaseModel):
     mascot: str | None = None
 
 
-def _current() -> dict:
+def _current(cid: int) -> dict:
     return {
-        "anniversary_date": kv_get("anniversary_date", cfg.anniversary_date),
-        "nickname_a": kv_get("nickname_a", cfg.nickname_a),
-        "nickname_b": kv_get("nickname_b", cfg.nickname_b),
-        "birthday_a": kv_get("birthday_a", cfg.birthday_a),
-        "birthday_b": kv_get("birthday_b", cfg.birthday_b),
-        "theme": kv_get("theme", "rosy"),
-        "mascot": kv_get("mascot", "bunny"),
+        "anniversary_date": kv_get(cid, "anniversary_date", cfg.anniversary_date),
+        "nickname_a": kv_get(cid, "nickname_a", cfg.nickname_a),
+        "nickname_b": kv_get(cid, "nickname_b", cfg.nickname_b),
+        "birthday_a": kv_get(cid, "birthday_a", cfg.birthday_a),
+        "birthday_b": kv_get(cid, "birthday_b", cfg.birthday_b),
+        "theme": kv_get(cid, "theme", "rosy"),
+        "mascot": kv_get(cid, "mascot", "bunny"),
         "kakao_js_key": cfg.kakao_js_key,
-        "allowed_emails": cfg.allowed_emails,
     }
 
 
@@ -62,13 +61,13 @@ def _next_birthday(bday: str | None, today: date | None = None) -> dict | None:
 
 @router.get("")
 def get_settings(request: Request):
-    require_user(request)
-    return _current()
+    _email, cid = require_couple(request)
+    return _current(cid)
 
 
 @router.patch("")
 def patch_settings(body: SettingsPatch, request: Request):
-    require_user(request)
+    _email, cid = require_couple(request)
     # 자동 캘린더 일정(기념일·생일·마일스톤) 재생성이 필요한 변경 추적
     stale: set[str] = set()
     if body.anniversary_date:
@@ -76,37 +75,38 @@ def patch_settings(body: SettingsPatch, request: Request):
             datetime.strptime(body.anniversary_date, "%Y-%m-%d")
         except ValueError:
             raise HTTPException(status_code=400, detail="bad_date")
-        kv_set("anniversary_date", body.anniversary_date)
+        kv_set(cid, "anniversary_date", body.anniversary_date)
         stale |= {"auto-mile-", "auto-anniv-"}     # 만난 날 바뀌면 일수·연 기념일 어긋남
     if body.nickname_a is not None:
-        kv_set("nickname_a", body.nickname_a.strip() or cfg.nickname_a)
+        kv_set(cid, "nickname_a", body.nickname_a.strip() or cfg.nickname_a)
         stale.add("auto-bday-a-")                   # 생일 일정 제목에 닉네임이 들어감
     if body.nickname_b is not None:
-        kv_set("nickname_b", body.nickname_b.strip() or cfg.nickname_b)
+        kv_set(cid, "nickname_b", body.nickname_b.strip() or cfg.nickname_b)
         stale.add("auto-bday-b-")
     for fld, val, prefix in (("birthday_a", body.birthday_a, "auto-bday-a-"),
                              ("birthday_b", body.birthday_b, "auto-bday-b-")):
         if val is not None:
             if val and _next_birthday(val) is None:
                 raise HTTPException(status_code=400, detail="bad_date")
-            kv_set(fld, val)
+            kv_set(cid, fld, val)
             stale.add(prefix)
     if body.theme:
-        kv_set("theme", body.theme)
+        kv_set(cid, "theme", body.theme)
     if body.mascot:
-        kv_set("mascot", body.mascot)
+        kv_set(cid, "mascot", body.mascot)
     if stale:
         from ..special_events import clear_auto, ensure_special_events
         for prefix in stale:
-            clear_auto(prefix)
-        ensure_special_events()
-    return _current()
+            clear_auto(cid, prefix)
+        ensure_special_events(cid)
+    return _current(cid)
 
 
 @router.get("/dday")
-def dday():
-    """비인증 D-day(랜딩에서 미리 보여줄 수 있도록)."""
-    anniv = kv_get("anniversary_date", cfg.anniversary_date)
+def dday(request: Request):
+    """커플 D-day."""
+    _email, cid = require_couple(request)
+    anniv = kv_get(cid, "anniversary_date", cfg.anniversary_date)
     try:
         start = datetime.strptime(anniv, "%Y-%m-%d").date()
     except Exception:
@@ -135,10 +135,10 @@ def dday():
         ("a", "birthday_a", cfg.birthday_a, "nickname_a", cfg.nickname_a),
         ("b", "birthday_b", cfg.birthday_b, "nickname_b", cfg.nickname_b),
     ):
-        info = _next_birthday(kv_get(bkey, bdefault), today)
+        info = _next_birthday(kv_get(cid, bkey, bdefault), today)
         if info:
             info["who"] = who
-            info["nickname"] = kv_get(nkey, ndefault)
+            info["nickname"] = kv_get(cid, nkey, ndefault)
             birthdays.append(info)
     return {
         "anniversary_date": anniv,

@@ -218,6 +218,8 @@ body {
 }
 .cal-cell {
   aspect-ratio: 1/1.05;
+  min-width: 0;        /* 7×1fr 트랙이 컨테이너 폭에 맞게 줄어들도록(그리드 아이템 기본 min-width:auto 해제) */
+  overflow: hidden;    /* nowrap 인 .cal-note 가 셀 min-content 폭을 키워 오른쪽으로 삐져나오는 것 방지 */
   border-radius:.85rem; padding:.35rem .4rem;
   background: rgba(255,255,255,.55);
   border:1px solid rgb(var(--r400) / .12);
@@ -233,6 +235,16 @@ body {
 }
 .cal-cell.other-month { opacity:.4; }
 .cal-cell.has-event { border-color: rgb(var(--r400) / .45); }
+.cal-cell.has-note { background: rgb(var(--r300) / .22); }
+.cal-cell.today.has-note { background: linear-gradient(135deg,rgb(var(--r300)) 0%,rgb(var(--r500)) 100%); }
+.cal-cell .cal-note {
+  width:100%; margin-top:2px;
+  font-size:9px; line-height:1.15;
+  color:rgb(var(--r700));
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.cal-cell .cal-note .cal-note-mark { margin-right:1px; }
+.cal-cell.today .cal-note { color:rgba(255,255,255,.92); }
 .cal-cell .dot {
   width:5px; height:5px; border-radius:999px; background:rgb(var(--r500)); display:inline-block;
 }
@@ -266,6 +278,7 @@ body {
   border:1px solid rgb(var(--r400) / .35); padding:.25rem .5rem; text-align:left; }
 .bubble .md-table th { background:rgb(var(--r100) / .8); font-weight:700; color:rgb(var(--r700)); }
 .msg-who { font-size:.68rem; font-weight:700; color:rgb(var(--r600)); margin:0 .35rem .1rem; }
+.msg-time { font-weight:500; color:rgb(var(--r600) / .6); margin-left:.3rem; }
 /* 챗 헤더 미니 마스코트 */
 .mascot-mini > span { display:grid; place-items:center; width:100%; height:100%; }
 .mascot-mini svg { width:42px; height:42px; }

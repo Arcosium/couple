@@ -17,15 +17,17 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app.auth import read_session
+from app.auth import read_session, couple_of
 from app.config import settings
-from app.db import kv_get
+from app.db import kv_get, couple_members
 from app.realtime import hub
 from app.routes import (
     auth_routes,
     bucket_routes,
     calendar_routes,
     chat_routes,
+    couple_routes,
+    notes_routes,
     photos_routes,
     places_routes,
     poke_routes,
@@ -49,6 +51,7 @@ templates = Jinja2Templates(directory=BASE / "templates")
 
 # 라우터 등록
 app.include_router(auth_routes.router)
+app.include_router(couple_routes.router)
 app.include_router(settings_routes.router)
 app.include_router(photos_routes.router)
 app.include_router(calendar_routes.router)
@@ -56,6 +59,7 @@ app.include_router(bucket_routes.router)
 app.include_router(places_routes.router)
 app.include_router(poke_routes.router)
 app.include_router(chat_routes.router)
+app.include_router(notes_routes.router)
 
 
 @app.get("/health")
@@ -90,23 +94,31 @@ def _asset_version() -> str:
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
     email = read_session(request)
-    template = "app.html" if email else "login.html"
+    if not email:
+        return templates.TemplateResponse(
+            request, "login.html",
+            {"asset_v": _asset_version()},
+            headers={"Cache-Control": "no-cache, must-revalidate"})
+    cid = couple_of(email)
+    if not cid:
+        return templates.TemplateResponse(
+            request, "match.html",
+            {"email": email, "asset_v": _asset_version()},
+            headers={"Cache-Control": "no-cache, must-revalidate"})
     return templates.TemplateResponse(
-        request,
-        template,
+        request, "app.html",
         {
             "kakao_js_key": settings.kakao_js_key,
-            "anniversary": kv_get("anniversary_date", settings.anniversary_date),
-            "nickname_a": kv_get("nickname_a", settings.nickname_a),
-            "nickname_b": kv_get("nickname_b", settings.nickname_b),
-            "mascot": kv_get("mascot", "bunny"),
-            "theme": kv_get("theme", "rosy"),
-            "email": email or "",
-            "partner_configured": len(settings.allowed_emails) >= 2,
+            "anniversary": kv_get(cid, "anniversary_date", settings.anniversary_date),
+            "nickname_a": kv_get(cid, "nickname_a", settings.nickname_a),
+            "nickname_b": kv_get(cid, "nickname_b", settings.nickname_b),
+            "mascot": kv_get(cid, "mascot", "bunny"),
+            "theme": kv_get(cid, "theme", "rosy"),
+            "email": email,
+            "partner_configured": True,
             "asset_v": _asset_version(),
         },
-        headers={"Cache-Control": "no-cache, must-revalidate"},
-    )
+        headers={"Cache-Control": "no-cache, must-revalidate"})
 
 
 ALLOWED_WS_ORIGINS = {
@@ -126,7 +138,7 @@ async def websocket_endpoint(ws: WebSocket):
     # FastAPI WebSocket 은 자동 Depends 가 약하니 쿠키에서 직접 세션 확인
     cookies = {c.split("=", 1)[0]: c.split("=", 1)[1] for c in
                (ws.headers.get("cookie") or "").split("; ") if "=" in c}
-    # read_session 이 쿠키뿐 아니라 Cf-Access 헤더 폴백도 보므로 headers 도 넘긴다.
+    # read_session 은 서명 세션 쿠키만 본다(헤더 폴백 제거). 쿠키 파싱용으로 구성.
     fake_request = type("R", (), {"cookies": cookies, "headers": ws.headers})()
     email = read_session(fake_request)
     if not email:
@@ -158,10 +170,14 @@ async def _reminder_loop():
     while True:
         try:
             now = datetime.now()
-            # 날짜가 바뀌면(또는 첫 루프) 특별일 자동 기록 갱신
+            # 날짜가 바뀌면(또는 첫 루프) 모든 커플의 특별일 자동 기록 갱신
             if last_ensure_day != now.date():
                 try:
-                    ensure_special_events(now.date())
+                    with db_cursor() as cur:
+                        cids = [row["id"] for row in
+                                cur.execute("SELECT id FROM couples").fetchall()]
+                    for cid in cids:
+                        ensure_special_events(cid, now.date())
                     last_ensure_day = now.date()
                 except Exception as exc:
                     print(f"[special_events] error: {exc}")
@@ -187,7 +203,7 @@ async def _reminder_loop():
                         "time": tm,
                         "minutes_to": max(0, int((when - now).total_seconds() / 60)),
                     }
-                    for em in settings.allowed_emails:
+                    for em in couple_members(r["couple_id"]):
                         await hub.send(em, payload)
                     with db_cursor() as cur:
                         cur.execute(
@@ -208,4 +224,4 @@ async def _startup():
 async def _not_found(req: Request, exc):
     if req.url.path.startswith("/api/"):
         return JSONResponse({"detail": "not_found"}, status_code=404)
-    return await index(req)
+    return index(req)  # index() 는 동기 함수 — await 하면 TypeError → 모든 404 가 500

@@ -104,6 +104,7 @@ function appState() {
     photoLoading: false,
     photoPlaces: [],
     photoView: null,
+    photoTagInput: '',                  // 사진 뷰어의 태그 추가 입력
     photoSelect: false,                 // 다중 선택 모드
     photoSelected: [],                  // 선택된 사진 id 목록
     bulkPlaceForm: { open: false, place_name: '' },
@@ -113,6 +114,14 @@ function appState() {
     calSelected: today(),
     eventForm: { open: false, id: null, title: '', due: today(), end_date: '', time: '', note: '', color: '#ec4899', reminder_minutes: null },
     allEvents: false,                   // 홈 '전체 일정' 모달
+
+    // 오늘 한마디 — 캘린더는 선택일(dayNotes), 홈 위젯은 오늘(homeNote)
+    dayNotes: { mine: '', partner: null, loading: false, isAnniv: false },
+    homeNote: { mine: '', partner: null },
+    notesByDate: {},                    // 캘린더 셀 표시용: { 'YYYY-MM-DD': [{content, mine, ...}] }
+    // 온보딩 — 신규 커플 만난날짜·생일·닉네임
+    isMemberA: false,
+    onboarding: { open: false, anniversary: '', birthday: '', nickname: '', saving: false },
 
     bucket: [],
     bucketForm: { open: false, id: null, title: '', description: '', icon: '💖', target_date: '' },
@@ -131,6 +140,7 @@ function appState() {
     geocoder: null,
     placesService: null,
     _markerImgCache: {},
+    kakaoImport: { open:false, url:'', items:[], picked:[], kind:'wishlist', loading:false, msg:'' },   // 카카오맵 폴더 가져오기
 
     chat: { messages: [], input: '', thinking: false, sessionId: 'default' },
     chatGreeting: '안녕~ 🐰 둘이 오늘 뭐 할지 알려줘봐!',
@@ -180,7 +190,8 @@ function appState() {
       if (this.photoQuery) {
         const q = this.photoQuery.toLowerCase();
         arr = arr.filter(p => (p.caption || '').toLowerCase().includes(q)
-          || (p.place_name || '').toLowerCase().includes(q));
+          || (p.place_name || '').toLowerCase().includes(q)
+          || (p.tags || '').toLowerCase().includes(q));
       }
       if (this.photoPlace) arr = arr.filter(p => p.place_name === this.photoPlace);
       return arr;
@@ -233,6 +244,7 @@ function appState() {
           key: iso, iso, day, inMonth,
           isToday: iso === todayIso,
           events: byDate[iso] || [],
+          notes: this.notesByDate[iso] || [],   // 그 날 기록된 오늘 한마디
         });
       }
       return cells;
@@ -258,6 +270,7 @@ function appState() {
         this.loadDDay(),
         this.refreshPhotos(),
         this.refreshEvents(),
+        this.refreshNotes(),
         this.refreshBucket(),
         this.refreshPlaces(),
         this.loadPokePresets(),
@@ -266,6 +279,8 @@ function appState() {
       ]);
       this.connectWS();
       this.greetChat();
+      this.loadHomeNote();          // 홈 오늘 한마디
+      this.checkOnboarding();       // 신규 커플이면 만난날짜·생일 입력 유도
       // 알림 권한
       if ('Notification' in window && Notification.permission === 'default') {
         try { Notification.requestPermission(); } catch (_) {}
@@ -277,12 +292,44 @@ function appState() {
       const j = await api('/api/auth/me');
       if (!j.authenticated) { location.href = '/'; return; }
       this.me = j.email;
+      this.isMemberA = !!j.is_member_a;
       this.nicks.self = j.nickname_self || this.nicks.a;
       this.nicks.partner = j.nickname_partner || this.nicks.b;
+      // 온보딩: 서버가 raw kv(미설정=None)로 판정. 폼은 이미 가진 값으로 프리필.
+      this._needsOnboarding = !!j.needs_onboarding;
+      this.onboarding.anniversary = j.anniversary_raw || '';
+      this.onboarding.birthday = j.my_birthday_raw || '';
+      this.onboarding.nickname = j.nickname_self || '';
     },
-    logout() {
-      // Cloudflare Access 세션을 종료한다(앱 자체 쿠키만 지워선 헤더로 즉시 재인증됨).
-      location.href = '/cdn-cgi/access/logout';
+    async logout() {
+      // 앱 세션 쿠키 삭제 후 로그인 화면으로. (CF Access 의존 제거)
+      try { await fetch('/api/auth/logout', { method: 'POST' }); } catch (_) {}
+      location.href = '/';
+    },
+    async unlinkCouple() {
+      const r = await fetch('/api/couple/unlink', { method: 'POST' });
+      if (r.ok) location.href = '/';
+    },
+    async kakaoPreview(){
+      this.kakaoImport.loading=true; this.kakaoImport.msg='';
+      try{
+        const r = await fetch('/api/places/import/kakao',{method:'POST',
+          headers:{'Content-Type':'application/json'},body:JSON.stringify({url:this.kakaoImport.url})});
+        const j = await r.json();
+        if(!r.ok){ this.kakaoImport.msg = j.detail==='no_places_parsed'?'장소를 못 읽었어요 (공유 링크 확인)':'가져오기 실패'; return; }
+        this.kakaoImport.items = j.items;
+        this.kakaoImport.picked = j.items.map((_,i)=>i);
+      } finally { this.kakaoImport.loading=false; }
+    },
+    async kakaoConfirm(){
+      const sel = this.kakaoImport.picked.map(i=>this.kakaoImport.items[i]);
+      const r = await fetch('/api/places/import/kakao/confirm',{method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({items:sel, kind:this.kakaoImport.kind})});
+      const j = await r.json();
+      this.kakaoImport.msg = `${j.added}곳 추가됐어요 📍`;
+      this.kakaoImport.open=false;
+      if(this.refreshPlaces) this.refreshPlaces();
     },
     /* ── D-day ──────────────────────────────────────────── */
     async loadDDay() {
@@ -313,7 +360,29 @@ function appState() {
       await this.refreshPhotos();
       this.pushToast('💖', `${arr.length}장 추가됐어!`);
     },
-    openPhoto(p) { this.photoView = { ...p }; },
+    openPhoto(p) { this.photoView = { ...p }; this.photoTagInput = ''; },
+    /* 태그: DB 엔 쉼표 구분 문자열, 화면엔 칩 */
+    photoTags(p) { return (p?.tags || '').split(',').map(t => t.trim()).filter(Boolean); },
+    async savePhotoTags(tags) {
+      const p = this.photoView;
+      const s = tags.join(',');
+      p.tags = s;
+      const idx = this.photos.findIndex(x => x.id === p.id);
+      if (idx >= 0) this.photos[idx] = { ...this.photos[idx], tags: s };
+      await api(`/api/photos/${p.id}`, { method: 'PATCH', body: JSON.stringify({ tags }) });
+    },
+    addPhotoTag() {
+      const tags = this.photoTags(this.photoView);
+      // 한 번에 여러 개(쉼표 구분)도 받아준다
+      for (const t of this.photoTagInput.split(',').map(x => x.trim().replace(/^#/, ''))) {
+        if (t && !tags.includes(t)) tags.push(t);
+      }
+      this.photoTagInput = '';
+      this.savePhotoTags(tags);
+    },
+    removePhotoTag(tag) {
+      this.savePhotoTags(this.photoTags(this.photoView).filter(t => t !== tag));
+    },
     async savePhotoMeta() {
       if (!this.photoView) return;
       const p = this.photoView;
@@ -380,6 +449,13 @@ function appState() {
     async refreshEvents() {
       this.events = await api('/api/events');
     },
+    // 캘린더 셀에 날짜별 오늘 한마디를 표시하기 위해 커플 전체 한마디를 한 번에 적재.
+    async refreshNotes() {
+      const rows = await api('/api/notes/all');
+      const map = {};
+      for (const r of rows) (map[r.date] = map[r.date] || []).push(r);
+      this.notesByDate = map;
+    },
     calPrev() {
       this.cal.month -= 1;
       if (this.cal.month < 0) { this.cal.month = 11; this.cal.year -= 1; }
@@ -394,6 +470,67 @@ function appState() {
         const [y, m] = cell.iso.split('-').map(Number);
         this.cal.year = y; this.cal.month = m - 1;
       }
+      this.loadDayNote();
+    },
+
+    /* ── 오늘 한마디 ─────────────────────────────────────── */
+    async _fetchNote(date) {
+      const j = await api('/api/notes?date=' + encodeURIComponent(date));
+      return { mine: j.mine ? j.mine.content : '', partner: j.partner || null };
+    },
+    _isAnniversary(date) {
+      const a = this.settings.anniversary_date;       // YYYY-MM-DD
+      return !!(a && date && a.slice(5) === date.slice(5));   // 월·일 일치
+    },
+    async loadDayNote() {
+      this.dayNotes.loading = true;
+      try {
+        const n = await this._fetchNote(this.calSelected);
+        this.dayNotes.mine = n.mine;
+        this.dayNotes.partner = n.partner;
+        this.dayNotes.isAnniv = this._isAnniversary(this.calSelected);
+      } finally { this.dayNotes.loading = false; }
+    },
+    async saveDayNote() {
+      await api('/api/notes', { method: 'PUT',
+        body: JSON.stringify({ date: this.calSelected, content: this.dayNotes.mine }) });
+      await this.loadDayNote();
+      this.refreshNotes();
+      if (this.calSelected === today()) Object.assign(this.homeNote, await this._fetchNote(today()));
+      this.pushToast('✏️', '오늘 한마디 저장');
+    },
+    async loadHomeNote() {
+      Object.assign(this.homeNote, await this._fetchNote(today()));
+    },
+    async saveHomeNote() {
+      await api('/api/notes', { method: 'PUT',
+        body: JSON.stringify({ date: today(), content: this.homeNote.mine }) });
+      await this.loadHomeNote();
+      this.refreshNotes();
+      if (this.calSelected === today()) await this.loadDayNote();
+      this.pushToast('✏️', '오늘 한마디 저장');
+    },
+
+    /* ── 온보딩 (만난날짜·생일·닉네임) ───────────────────── */
+    _myBirthdayKey() { return this.isMemberA ? 'birthday_a' : 'birthday_b'; },
+    _myNickKey() { return this.isMemberA ? 'nickname_a' : 'nickname_b'; },
+    checkOnboarding() {
+      // 판정은 서버(loadMe 의 needs_onboarding). 폼은 loadMe 가 raw 값으로 프리필해 둠.
+      if (this._needsOnboarding) this.onboarding.open = true;
+    },
+    async saveOnboarding() {
+      this.onboarding.saving = true;
+      try {
+        const payload = {};
+        if (this.onboarding.anniversary) payload.anniversary_date = this.onboarding.anniversary;
+        if (this.onboarding.nickname) payload[this._myNickKey()] = this.onboarding.nickname;
+        if (this.onboarding.birthday) payload[this._myBirthdayKey()] = this.onboarding.birthday;
+        await api('/api/settings', { method: 'PATCH', body: JSON.stringify(payload) });
+        await this.loadSettings();
+        await this.loadDDay();
+        this.onboarding.open = false;
+        this.pushToast('💞', '우리 정보 저장됐어');
+      } finally { this.onboarding.saving = false; }
     },
     openEventForm(due) {
       this.eventForm = { open: true, id: null, title: '', due: due || today(), end_date: '', time: '', note: '', color: '#ec4899', reminder_minutes: null };
@@ -451,6 +588,10 @@ function appState() {
     },
 
     /* ── 버킷리스트 ──────────────────────────────────────── */
+    /* 서버가 done ASC 로 정렬해 주므로 이룬 건 자연히 아래로 간다.
+       화면에선 ArcAI.ve 할일 패널처럼 '남은 것 / 완료(n)' 두 묶음으로 나눠 보여준다. */
+    get bucketTodo() { return this.bucket.filter(b => !b.done); },
+    get bucketDone() { return this.bucket.filter(b => b.done); },
     async refreshBucket() { this.bucket = await api('/api/bucket'); },
     openBucketForm() {
       this.bucketForm = { open: true, id: null, title: '', description: '', icon: '💖', target_date: '' };
@@ -480,6 +621,7 @@ function appState() {
       b.done = !b.done;
       await api(`/api/bucket/${b.id}`, { method: 'PATCH', body: JSON.stringify({ done: b.done }) });
       if (b.done) this.pushToast('💖', '둘이 하나 더 이뤘다!', b.title);
+      await this.refreshBucket();   // 서버 정렬을 다시 받아 완료된 건 아래로 내려보낸다
     },
     async deleteBucket(b) {
       if (!confirm('이 버킷을 지울까요?')) return;
@@ -827,7 +969,8 @@ function appState() {
       const msg = (this.chat.input || '').trim();
       if (!msg) return;
       this.chat.input = '';
-      this.chat.messages.push({ id: 'u' + Date.now(), role: 'user', content: msg, user_email: this.me });
+      this.chat.messages.push({ id: 'u' + Date.now(), role: 'user', content: msg, user_email: this.me,
+                                created_at: new Date().toISOString() });
       this.chat.thinking = true;
       this.$nextTick(() => this.scrollChat());
       try {
@@ -838,6 +981,7 @@ function appState() {
         this.chat.messages.push({
           id: 'b' + Date.now(), role: 'assistant',
           content: j.reply, tools: j.tools_used || [],
+          created_at: new Date().toISOString(),
         });
         // 도구가 데이터를 바꿨으면 본인 화면도 갱신
         if ((j.tools_used || []).length) {
@@ -879,6 +1023,15 @@ function appState() {
     bubbleClass(m) {
       if (m.role === 'assistant') return 'bot';
       return (m.user_email && m.user_email !== this.me) ? 'peer' : 'user';
+    },
+    /* 말풍선 옆 시각. 서버는 tz 없이(=서버 로컬시각) 저장하고, 낙관적 push 는 'Z'(UTC)라
+       둘 다 Date 가 알아서 로컬로 해석한다. 오늘이 아니면 날짜도 함께 보여준다. */
+    msgTime(iso) {
+      if (!iso) return '';
+      const d = new Date(String(iso).replace(' ', 'T'));
+      if (isNaN(d)) return '';
+      const t = d.toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit' });
+      return d.toDateString() === new Date().toDateString() ? t : `${d.getMonth() + 1}/${d.getDate()} ${t}`;
     },
 
     /* ── 콕찌르기 ────────────────────────────────────────── */
@@ -1008,6 +1161,16 @@ function appState() {
       } else if (d.kind === 'place_deleted') {
         this.pushToast('🗑️', `장소 삭제됨`, d.name || '');
         this.refreshPlaces();
+      } else if (d.kind === 'photo_tagged') {
+        // 자동 태깅이 끝나면(업로드 몇 초 뒤) 화면을 새로고침 없이 갱신
+        const i = this.photos.findIndex(p => p.id === d.id);
+        if (i >= 0) this.photos[i] = { ...this.photos[i], tags: d.tags };
+        if (this.photoView?.id === d.id && !this.photoView.tags) this.photoView.tags = d.tags;
+      } else if (d.kind === 'note') {
+        this.pushToast('✏️', `${this.nicks.partner}님 오늘 한마디`);
+        this.refreshNotes();
+        if (d.date === today()) this.loadHomeNote();
+        if (d.date === this.calSelected) this.loadDayNote();
       }
     },
 

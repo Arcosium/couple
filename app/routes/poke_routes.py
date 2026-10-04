@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 
-from ..auth import partner_of, require_user
+from ..auth import partner_of, require_couple
 from ..db import cursor
 from ..realtime import hub
 
@@ -37,30 +37,30 @@ def presets():
 
 @router.get("")
 def list_pokes(request: Request):
-    user = require_user(request)
+    user, cid = require_couple(request)
     with cursor() as cur:
         rows = [dict(r) for r in cur.execute(
-            "SELECT * FROM pokes WHERE to_email=? OR from_email=? "
+            "SELECT * FROM pokes WHERE (to_email=? OR from_email=?) AND couple_id=? "
             "ORDER BY created_at DESC LIMIT 80",
-            (user, user),
+            (user, user, cid),
         ).fetchall()]
     return rows
 
 
 @router.get("/unread_count")
 def unread_count(request: Request):
-    user = require_user(request)
+    user, cid = require_couple(request)
     with cursor() as cur:
         row = cur.execute(
-            "SELECT COUNT(*) AS n FROM pokes WHERE to_email=? AND seen=0",
-            (user,),
+            "SELECT COUNT(*) AS n FROM pokes WHERE to_email=? AND seen=0 AND couple_id=?",
+            (user, cid),
         ).fetchone()
     return {"unread": row["n"]}
 
 
 @router.post("")
 async def send(body: PokeIn, request: Request):
-    user = require_user(request)
+    user, cid = require_couple(request)
     partner = partner_of(user)
     if not partner:
         raise HTTPException(status_code=400, detail="no_partner_configured")
@@ -70,9 +70,9 @@ async def send(body: PokeIn, request: Request):
     created = datetime.now(timezone.utc).isoformat(timespec="seconds")
     with cursor() as cur:
         cur.execute(
-            "INSERT INTO pokes (id, from_email, to_email, emoji, message, seen, created_at) "
-            "VALUES (?, ?, ?, ?, ?, 0, ?)",
-            (pid, user, partner, body.emoji, body.message, created),
+            "INSERT INTO pokes (id, from_email, to_email, emoji, message, seen, created_at, couple_id) "
+            "VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
+            (pid, user, partner, body.emoji, body.message, created, cid),
         )
     sent = await hub.send(
         partner,
@@ -90,16 +90,18 @@ async def send(body: PokeIn, request: Request):
 
 @router.post("/seen")
 def mark_seen(request: Request):
-    user = require_user(request)
+    user, cid = require_couple(request)
     with cursor() as cur:
-        cur.execute("UPDATE pokes SET seen=1 WHERE to_email=? AND seen=0", (user,))
+        cur.execute("UPDATE pokes SET seen=1 WHERE to_email=? AND seen=0 AND couple_id=?",
+                    (user, cid))
     return {"ok": True}
 
 
 @router.post("/clear")
 def clear(request: Request):
     """내가 보냈거나 받은 콕찌르기 기록을 전부 삭제."""
-    user = require_user(request)
+    user, cid = require_couple(request)
     with cursor() as cur:
-        cur.execute("DELETE FROM pokes WHERE to_email=? OR from_email=?", (user, user))
+        cur.execute("DELETE FROM pokes WHERE (to_email=? OR from_email=?) AND couple_id=?",
+                    (user, user, cid))
     return {"ok": True}

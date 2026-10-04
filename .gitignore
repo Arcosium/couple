@@ -23,3 +23,8 @@ venv/
 
 # logs
 *.log
+data
+/data
+/.code-review-graph
+/.remember
+/.git

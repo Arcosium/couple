@@ -119,20 +119,23 @@
       </button>
     </div>
 
-    <!-- 빠른 액션 그리드 -->
-    <div class="grid grid-cols-4 gap-2 rise rise-delay-1">
-      <button @click="tab='photos'" class="glass rounded-2xl py-3 flex flex-col items-center gap-1">
-        <span class="text-2xl">📷</span><span class="text-[11px] font-medium text-rose-800">추억</span>
-      </button>
-      <button @click="tab='calendar'" class="glass rounded-2xl py-3 flex flex-col items-center gap-1">
-        <span class="text-2xl">📅</span><span class="text-[11px] font-medium text-rose-800">일정</span>
-      </button>
-      <button @click="tab='bucket'" class="glass rounded-2xl py-3 flex flex-col items-center gap-1">
-        <span class="text-2xl">✨</span><span class="text-[11px] font-medium text-rose-800">버킷</span>
-      </button>
-      <button @click="tab='map'" class="glass rounded-2xl py-3 flex flex-col items-center gap-1">
-        <span class="text-2xl">🗺️</span><span class="text-[11px] font-medium text-rose-800">지도</span>
-      </button>
+    <!-- 오늘 한마디 (홈 미니 위젯) — 하단 탭과 중복되던 빠른액션 버튼 자리 -->
+    <div class="glass rounded-3xl p-4 rise rise-delay-1">
+      <div class="flex items-center justify-between mb-2">
+        <p class="font-semibold text-rose-700">오늘 한마디 ✏️</p>
+        <button @click="tab='calendar'; calSelected=today(); loadDayNote()" class="text-xs text-rose-500 hover:underline">캘린더에서 →</button>
+      </div>
+      <template x-if="homeNote.partner">
+        <p class="text-sm bg-rose-50 rounded-2xl px-3 py-2 mb-2">
+          <b class="text-rose-700" x-text="(nicks.partner||'상대')+'님'"></b>
+          <span class="text-rose-900/80 ml-1" x-text="homeNote.partner.content"></span>
+        </p>
+      </template>
+      <div class="flex gap-2">
+        <input x-model="homeNote.mine" @keydown.enter="saveHomeNote()"
+          placeholder="오늘 뭐 했어?" class="input flex-1" />
+        <button @click="saveHomeNote()" class="btn btn-soft px-3 text-sm shrink-0">저장</button>
+      </div>
     </div>
 
     <!-- 통계 -->
@@ -236,9 +239,11 @@
         <div class="photo-tile" :class="photoSelect && isPhotoSelected(p) && 'sel'"
           @click="photoSelect ? togglePhotoSel(p) : openPhoto(p)">
           <span x-show="photoSelect" class="selmark" x-text="isPhotoSelected(p) ? '✓' : ''"></span>
-          <img :src="p.url" :alt="p.caption || '사진'" loading="lazy" />
+          <img :src="p.thumb_url || p.url" :alt="p.caption || '사진'" loading="lazy" decoding="async" />
           <div class="meta">
             <p x-show="p.place_name" x-text="p.place_name"></p>
+            <p x-show="p.tags" class="truncate opacity-90"
+               x-text="photoTags(p).map(t => '#' + t).join(' ')"></p>
             <p x-show="p.taken_at" x-text="formatDate(p.taken_at)"></p>
           </div>
         </div>
@@ -271,9 +276,16 @@
               'today': cell.isToday,
               'other-month': !cell.inMonth,
               'has-event': cell.events.length>0,
+              'has-note': cell.notes.length>0,
               'ring-2 ring-rose-400': cell.iso===calSelected,
             }">
             <span class="font-semibold" x-text="cell.day"></span>
+            <!-- 오늘 한마디 미리보기 (있으면): ✏️ + 잘린 텍스트 -->
+            <template x-if="cell.notes.length>0">
+              <div class="cal-note" :title="cell.notes.map(n=>n.content).join(' / ')">
+                <span class="cal-note-mark">✏️</span><span x-text="cell.notes.map(n=>n.content).join(' / ')"></span>
+              </div>
+            </template>
             <div class="flex gap-0.5 mt-auto flex-wrap">
               <template x-for="e in cell.events.slice(0,3)" :key="e.id">
                 <span class="dot" :style="`background:${e.color || '#ec4899'}`"></span>
@@ -310,6 +322,23 @@
         </template>
       </ul>
     </div>
+
+    <!-- 오늘 한마디 (선택일) -->
+    <div class="glass rounded-3xl p-4">
+      <p class="font-semibold text-rose-700 mb-2"
+        x-text="dayNotes.isAnniv ? '오늘 같이 뭐 했어? 💞' : '오늘 한마디 ✏️'"></p>
+      <template x-if="dayNotes.partner">
+        <p class="text-sm bg-rose-50 rounded-2xl px-3 py-2 mb-2">
+          <b class="text-rose-700" x-text="(nicks.partner||'상대')+'님'"></b>
+          <span class="text-rose-900/80 ml-1" x-text="dayNotes.partner.content"></span>
+        </p>
+      </template>
+      <textarea x-model="dayNotes.mine" rows="2" placeholder="이 날 뭐 했는지 적어줘"
+        class="input w-full"></textarea>
+      <div class="flex justify-end mt-2">
+        <button @click="saveDayNote()" class="btn btn-soft py-1.5 px-3 text-sm">저장</button>
+      </div>
+    </div>
   </section>
 
   <!-- ════════ BUCKET ════════ -->
@@ -323,18 +352,41 @@
         <div class="empty"><div class="emoji">🌟</div>둘이서 하고 싶은 것들을 적어봐!</div>
       </template>
       <ul class="space-y-2">
-        <template x-for="b in bucket" :key="b.id">
-          <li class="bucket-card" :class="{done: b.done}">
-            <button @click="toggleBucket(b)" class="text-2xl shrink-0" x-text="b.icon || '💖'" title="완료 토글"></button>
+        <template x-for="b in bucketTodo" :key="b.id">
+          <li class="bucket-card">
+            <span class="text-2xl shrink-0" x-text="b.icon || '💖'"></span>
             <button type="button" @click="editBucket(b)" class="flex-1 min-w-0 text-left" title="눌러서 수정">
               <p class="title font-medium text-rose-900" x-text="b.title"></p>
               <p x-show="b.description" class="text-xs text-rose-700/70 mt-0.5" x-text="b.description"></p>
               <p x-show="b.target_date" class="text-[11px] text-rose-500 mt-0.5">📌 <span x-text="b.target_date"></span></p>
             </button>
+            <button @click="toggleBucket(b)" class="btn btn-primary py-1 px-3 text-xs shrink-0">✓ 달성</button>
             <button @click="deleteBucket(b)" class="text-rose-400 hover:text-rose-600 text-sm shrink-0">×</button>
           </li>
         </template>
       </ul>
+
+      <!-- 이룬 것들 — 아래로 내려간다 -->
+      <template x-if="bucketDone.length">
+        <div class="mt-4">
+          <p class="text-xs font-semibold text-rose-700/60 mb-2 px-1">
+            이룬 것 (<span x-text="bucketDone.length"></span>) 🎉
+          </p>
+          <ul class="space-y-2">
+            <template x-for="b in bucketDone" :key="b.id">
+              <li class="bucket-card done">
+                <span class="text-2xl shrink-0" x-text="b.icon || '💖'"></span>
+                <button type="button" @click="editBucket(b)" class="flex-1 min-w-0 text-left" title="눌러서 수정">
+                  <p class="title font-medium text-rose-900" x-text="b.title"></p>
+                  <p x-show="b.done_at" class="text-[11px] text-rose-500 mt-0.5">🎊 <span x-text="formatDate(b.done_at)"></span> 달성</p>
+                </button>
+                <button @click="toggleBucket(b)" class="btn btn-soft py-1 px-3 text-xs shrink-0">되돌리기</button>
+                <button @click="deleteBucket(b)" class="text-rose-400 hover:text-rose-600 text-sm shrink-0">×</button>
+              </li>
+            </template>
+          </ul>
+        </div>
+      </template>
     </div>
   </section>
 
@@ -351,6 +403,8 @@
         <button @click="myLocation()" class="ml-auto btn btn-soft py-1.5 px-3 text-sm" title="내 위치">📡 내 위치</button>
         <button @click="fitAllPlaces()" class="btn btn-soft py-1.5 px-3 text-sm" title="모든 핀 보기">🔭 전체</button>
         <button @click="openPlaceForm()" class="btn btn-primary py-1.5 px-3 text-sm">＋ 핀</button>
+        <button @click="kakaoImport.open = true"
+                class="text-sm px-3 py-2 rounded-xl bg-amber-100 text-amber-700">📥 카카오맵 폴더 가져오기</button>
       </div>
       <form @submit.prevent="searchPlaces()" class="flex gap-2">
         <input x-model="mapSearchQuery" class="input flex-1" placeholder="🔍 장소 검색 (예: 홍대 카페, 한강공원)" />
@@ -431,7 +485,10 @@
         </div>
         <template x-for="m in chat.messages" :key="m.id">
           <div class="flex flex-col" :class="bubbleClass(m)==='user' ? 'items-end' : 'items-start'">
-            <span class="msg-who" x-text="senderLabel(m)"></span>
+            <span class="msg-who">
+              <span x-text="senderLabel(m)"></span>
+              <span class="msg-time" x-text="msgTime(m.created_at)"></span>
+            </span>
             <div class="bubble" :class="bubbleClass(m)" x-html="mdLite(m.content)"></div>
             <template x-if="m.tools && m.tools.length">
               <div class="mt-1 flex gap-1 flex-wrap">
@@ -520,12 +577,15 @@
       </div>
 
       <button @click="logout()" class="btn btn-soft w-full">로그아웃</button>
+
+      <button @click="if(confirm('정말 커플을 해제할까요? 공유 데이터는 더 이상 보이지 않아요.')) unlinkCouple()"
+              class="w-full mt-4 text-red-500 text-sm py-2 ring-1 ring-red-200 rounded-xl">💔 커플 해제</button>
     </div>
   </section>
 </main>
 
 <!-- ───── 콕찌르기 FAB ───── -->
-<button class="fab" @click="pokePicker=true" :class="pokeAnim && 'shake'" aria-label="콕찌르기">
+<button class="fab" @click="pokePicker=true; markPokesSeen()" :class="pokeAnim && 'shake'" aria-label="콕찌르기">
   💗
   <span class="badge" x-show="unreadPokes>0" x-text="unreadPokes"></span>
 </button>
@@ -539,7 +599,7 @@
     <button class="tab-btn" :class="tab==='photos' && 'active'" @click="tab='photos'; refreshPhotos()">
       <span class="ic">📷</span>추억
     </button>
-    <button class="tab-btn" :class="tab==='calendar' && 'active'" @click="tab='calendar'">
+    <button class="tab-btn" :class="tab==='calendar' && 'active'" @click="tab='calendar'; loadDayNote()">
       <span class="ic">📅</span>캘린더
     </button>
     <button class="tab-btn" :class="tab==='bucket' && 'active'" @click="tab='bucket'">
@@ -591,6 +651,17 @@
     <div class="glass-strong p-4 space-y-2">
       <input x-model="photoView.caption" @change="savePhotoMeta()" placeholder="캡션…" class="input"/>
       <input x-model="photoView.place_name" @change="savePhotoMeta()" placeholder="장소 이름…" class="input"/>
+      <!-- 태그: 업로드 직후 로컬 AI 가 자동으로 붙이고, 여기서 지우거나 더할 수 있다 -->
+      <div class="flex flex-wrap items-center gap-1.5">
+        <template x-for="t in photoTags(photoView)" :key="t">
+          <span class="chip">#<span x-text="t"></span>
+            <button @click="removePhotoTag(t)" class="opacity-50 hover:opacity-100" title="태그 삭제">✕</button>
+          </span>
+        </template>
+        <span x-show="!photoTags(photoView).length" class="text-xs text-rose-700/50">🏷️ 태그 다는 중…</span>
+        <input x-model="photoTagInput" @keydown.enter.prevent="addPhotoTag()" @blur="photoTagInput && addPhotoTag()"
+          placeholder="+ 태그" class="input py-1 px-2 text-xs w-24 flex-none" />
+      </div>
       <div class="flex items-center gap-2 text-xs text-rose-700/70">
         <span x-show="photoView?.taken_at" x-text="'📅 ' + formatDate(photoView.taken_at)"></span>
         <span x-show="photoView?.lat" x-text="'📍 ' + (photoView.lat?.toFixed(4)) + ', ' + (photoView.lng?.toFixed(4))"></span>
@@ -599,6 +670,34 @@
         <button @click="photoView=null" class="btn btn-ghost py-1 px-3 text-xs">닫기</button>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- ───── 모달: 카카오맵 폴더 가져오기 ───── -->
+<div x-show="kakaoImport.open" x-cloak class="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" @click.self="kakaoImport.open=false">
+  <div class="bg-white rounded-2xl p-5 w-full max-w-md max-h-[85vh] overflow-auto">
+    <h3 class="font-bold text-rose-600 mb-3">카카오맵 폴더 가져오기</h3>
+    <p class="text-xs text-gray-500 mb-2">카카오맵 앱에서 저장 폴더를 공유 → 링크를 붙여넣어 주세요.</p>
+    <input x-model="kakaoImport.url" placeholder="https://kko.kakao.com/..." class="w-full ring-1 ring-rose-200 rounded-xl px-3 py-2 mb-2">
+    <button @click="kakaoPreview" :disabled="kakaoImport.loading" class="w-full bg-rose-500 text-white py-2 rounded-xl mb-3" x-text="kakaoImport.loading?'불러오는 중…':'미리보기'"></button>
+    <template x-if="kakaoImport.items.length">
+      <div>
+        <div class="space-y-1 mb-3">
+          <template x-for="(it,i) in kakaoImport.items" :key="i">
+            <label class="flex items-center gap-2 text-sm">
+              <input type="checkbox" :value="i" x-model.number="kakaoImport.picked">
+              <span x-text="it.name"></span>
+            </label>
+          </template>
+        </div>
+        <select x-model="kakaoImport.kind" class="w-full ring-1 ring-rose-200 rounded-xl px-3 py-2 mb-2">
+          <option value="wishlist">가볼곳</option><option value="visited">가본곳</option><option value="revisit">또갈곳</option>
+        </select>
+        <button @click="kakaoConfirm" class="w-full bg-rose-600 text-white py-2 rounded-xl">선택한 곳 추가</button>
+      </div>
+    </template>
+    <p x-show="kakaoImport.msg" x-text="kakaoImport.msg" class="text-rose-600 text-sm mt-2"></p>
+    <button @click="kakaoImport.open=false" class="w-full text-gray-500 text-sm mt-3">닫기</button>
   </div>
 </div>
 
@@ -762,6 +861,27 @@
       <button type="submit" class="btn btn-primary flex-1">저장</button>
     </div>
   </form>
+</div>
+
+<!-- ───── 모달: 온보딩 (신규 커플 만난날짜·생일·닉네임) ───── -->
+<div x-show="onboarding.open" x-cloak
+  class="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-4">
+  <div class="bg-white rounded-2xl p-5 w-full max-w-sm">
+    <h3 class="display text-xl text-rose-600 mb-1">우리 정보 입력 💞</h3>
+    <p class="text-xs text-rose-700/70 mb-4">처음이니까 만난 날짜랑 네 생일을 알려줘. (상대는 본인이 들어와서 입력)</p>
+    <label class="block text-sm text-rose-900/80 mb-2">만난 날짜
+      <input type="date" x-model="onboarding.anniversary" class="input w-full mt-1" />
+    </label>
+    <label class="block text-sm text-rose-900/80 mb-2">내 닉네임
+      <input x-model="onboarding.nickname" placeholder="자기" class="input w-full mt-1" />
+    </label>
+    <label class="block text-sm text-rose-900/80 mb-3">내 생일
+      <input type="date" x-model="onboarding.birthday" class="input w-full mt-1" />
+    </label>
+    <button @click="saveOnboarding()" :disabled="onboarding.saving"
+      class="btn btn-primary w-full py-2.5 disabled:opacity-50">저장하고 시작 💖</button>
+    <button @click="onboarding.open=false" class="w-full text-rose-500 text-xs py-2 mt-1">나중에</button>
+  </div>
 </div>
 
 <script src="/static/js/app.js?v={{ asset_v }}"></script>

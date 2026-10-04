@@ -22,9 +22,10 @@ from .realtime import hub
 
 
 # ── 헬퍼 ─────────────────────────────────────────────
-async def _broadcast(kind: str, **extra) -> None:
+async def _broadcast(couple_id: int, kind: str, **extra) -> None:
+    from .db import couple_members
     payload = {"kind": kind, **extra}
-    for em in settings.allowed_emails:
+    for em in couple_members(couple_id):
         await hub.send(em, payload)
 
 
@@ -34,21 +35,6 @@ def _now_ms() -> str:
 
 def _now_iso() -> str:
     return datetime.datetime.now().isoformat(timespec="seconds")
-
-
-def _args_to_dict(args) -> dict:
-    """Gemini FunctionCall.args(MapComposite) → 평범한 dict."""
-    if args is None:
-        return {}
-    if isinstance(args, dict):
-        return args
-    try:
-        return {k: v for k, v in args.items()}
-    except Exception:
-        try:
-            return dict(args)
-        except Exception:
-            return {}
 
 
 # ── 카카오 검색(REST) ───────────────────────────────
@@ -81,8 +67,39 @@ async def kakao_search(query: str, **_) -> dict:
         return {"error": f"kakao_search failed: {e}"}
 
 
+# ── 관광 스냅샷(한국관광공사 TourAPI, 오프라인) ─────────────
+async def tour_search(keyword: str = "", area: str = "", kind: str = "", limit: int = 8, **_) -> dict:
+    """전국 관광지·문화시설·여행코스·레포츠 코퍼스(사진·좌표 포함) 오프라인 검색.
+    의미검색은 opt-in(COUPLE_SEMANTIC=1) — POI ~2만건 첫 색인 지연 때문(임베딩은 bake 권장)."""
+    import os
+    from . import tour_data
+    try:
+        if os.getenv("COUPLE_SEMANTIC", "0") == "1" and (keyword or "").strip():
+            results = tour_data.semantic_pois(query=keyword, area=area, kind=kind, limit=limit)
+        else:
+            results = tour_data.search_pois(keyword=keyword, area=area, kind=kind, limit=limit)
+    except Exception:
+        results = tour_data.search_pois(keyword=keyword, area=area, kind=kind, limit=limit)
+    if not results:
+        return {"results": [], "note": "관광 코퍼스에 매칭 없음(다른 지역/키워드로 다시 시도하거나 kakao_search 사용)"}
+    return {"results": results}
+
+
+async def list_festivals(area: str = "", keyword: str = "", days: int = 0, limit: int = 8, **_) -> dict:
+    """앞으로 열리는(또는 진행 중인) 축제. days=7 이면 이번 주 이내.
+    keyword 가 자연어면 의미검색으로 찾는다('바다 근처 조용한 축제'). 실패 시 부분일치 폴백."""
+    from . import tour_data
+    try:
+        festivals = tour_data.semantic_festivals(query=keyword, area=area, days=days, limit=limit)
+    except Exception:
+        festivals = tour_data.upcoming_festivals(area=area, keyword=keyword, days=days, limit=limit)
+    if not festivals:
+        return {"festivals": [], "note": "해당 조건의 예정 축제 없음"}
+    return {"festivals": festivals}
+
+
 # ── PLACES ───────────────────────────────────────────
-async def add_place(user_email: str, name: str, kind: str, lat: float, lng: float,
+async def add_place(user_email: str, couple_id: int, name: str, kind: str, lat: float, lng: float,
                     address: str = "", category: str = "", memo: str = "", **_) -> dict:
     if kind not in ("visited", "wishlist", "revisit"):
         return {"error": "kind must be 'visited', 'wishlist', or 'revisit'"}
@@ -90,17 +107,17 @@ async def add_place(user_email: str, name: str, kind: str, lat: float, lng: floa
     with cursor() as cur:
         cur.execute(
             "INSERT INTO places (id, name, address, lat, lng, kind, category, memo, "
-            "created_at, owner_email) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "created_at, owner_email, couple_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (pid, name, address, float(lat), float(lng), kind, category, memo,
-             _now_iso(), user_email),
+             _now_iso(), user_email, couple_id),
         )
-    await _broadcast("place_added", name=name, place_kind=kind, by=user_email)
+    await _broadcast(couple_id, "place_added", name=name, place_kind=kind, by=user_email)
     return {"id": pid, "name": name, "kind": kind, "ok": True}
 
 
-async def list_places(kind: str = "", query: str = "", **_) -> dict:
-    sql = "SELECT id, name, address, lat, lng, kind, category, memo FROM places WHERE 1=1"
-    args: list = []
+async def list_places(couple_id: int, kind: str = "", query: str = "", **_) -> dict:
+    sql = "SELECT id, name, address, lat, lng, kind, category, memo FROM places WHERE couple_id=?"
+    args: list = [couple_id]
     if kind:
         sql += " AND kind=?"
         args.append(kind)
@@ -112,7 +129,7 @@ async def list_places(kind: str = "", query: str = "", **_) -> dict:
         return {"items": [dict(r) for r in cur.execute(sql, args).fetchall()]}
 
 
-async def update_place(user_email: str, place_id: str, **kw) -> dict:
+async def update_place(user_email: str, couple_id: int, place_id: str, **kw) -> dict:
     fields, args = [], []
     for k in ("name", "kind", "lat", "lng", "address", "category", "memo"):
         if k in kw and kw[k] is not None:
@@ -120,25 +137,26 @@ async def update_place(user_email: str, place_id: str, **kw) -> dict:
             args.append(kw[k])
     if not fields:
         return {"error": "no fields to update"}
-    args.append(place_id)
+    args.extend([place_id, couple_id])
     with cursor() as cur:
-        cur.execute(f"UPDATE places SET {', '.join(fields)} WHERE id=?", args)
-    await _broadcast("place_updated", by=user_email)
+        cur.execute(f"UPDATE places SET {', '.join(fields)} WHERE id=? AND couple_id=?", args)
+    await _broadcast(couple_id, "place_updated", by=user_email)
     return {"ok": True}
 
 
-async def delete_place(user_email: str, place_id: str, **_) -> dict:
+async def delete_place(user_email: str, couple_id: int, place_id: str, **_) -> dict:
     with cursor() as cur:
-        row = cur.execute("SELECT name FROM places WHERE id=?", (place_id,)).fetchone()
+        row = cur.execute("SELECT name FROM places WHERE id=? AND couple_id=?",
+                          (place_id, couple_id)).fetchone()
         if not row:
             return {"error": "place not found"}
-        cur.execute("DELETE FROM places WHERE id=?", (place_id,))
-    await _broadcast("place_deleted", by=user_email, name=row["name"])
+        cur.execute("DELETE FROM places WHERE id=? AND couple_id=?", (place_id, couple_id))
+    await _broadcast(couple_id, "place_deleted", by=user_email, name=row["name"])
     return {"ok": True, "name": row["name"]}
 
 
 # ── EVENTS ───────────────────────────────────────────
-async def add_event(user_email: str, title: str, due: str = "", time: str = "",
+async def add_event(user_email: str, couple_id: int, title: str, due: str = "", time: str = "",
                     color: str = "", reminder_minutes: int | None = None,
                     note: str = "", end_date: str = "", **_) -> dict:
     eid = _now_ms()
@@ -149,20 +167,20 @@ async def add_event(user_email: str, title: str, due: str = "", time: str = "",
     with cursor() as cur:
         cur.execute(
             "INSERT INTO events (id, title, due, end_date, time, note, color, source, done, "
-            "reminder_minutes, owner_email, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, 'calendar', 0, ?, ?, ?)",
+            "reminder_minutes, owner_email, created_at, couple_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 'calendar', 0, ?, ?, ?, ?)",
             (eid, title, due or None, end, time or None, note or None,
              color or "#ec4899", reminder_minutes, user_email,
-             datetime.datetime.now().strftime("%Y-%m-%d %H:%M")),
+             datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), couple_id),
         )
-    await _broadcast("event_added", title=title, due=due, by=user_email)
+    await _broadcast(couple_id, "event_added", title=title, due=due, by=user_email)
     return {"id": eid, "title": title, "ok": True}
 
 
-async def list_events(due: str = "", **_) -> dict:
+async def list_events(couple_id: int, due: str = "", **_) -> dict:
     sql = ("SELECT id, title, due, end_date, time, color, done, reminder_minutes, note "
-           "FROM events WHERE 1=1")
-    args: list = []
+           "FROM events WHERE couple_id=?")
+    args: list = [couple_id]
     if due:
         sql += " AND due=?"
         args.append(due)
@@ -171,7 +189,7 @@ async def list_events(due: str = "", **_) -> dict:
         return {"items": [dict(r) for r in cur.execute(sql, args).fetchall()]}
 
 
-async def update_event(user_email: str, event_id: str, **kw) -> dict:
+async def update_event(user_email: str, couple_id: int, event_id: str, **kw) -> dict:
     fields, args = [], []
     for k in ("title", "due", "end_date", "time", "note", "color", "reminder_minutes"):
         if k in kw and kw[k] is not None:
@@ -182,44 +200,45 @@ async def update_event(user_email: str, event_id: str, **kw) -> dict:
         args.append(1 if kw["done"] else 0)
     if not fields:
         return {"error": "no fields to update"}
-    args.append(event_id)
+    args.extend([event_id, couple_id])
     with cursor() as cur:
-        cur.execute(f"UPDATE events SET {', '.join(fields)} WHERE id=?", args)
+        cur.execute(f"UPDATE events SET {', '.join(fields)} WHERE id=? AND couple_id=?", args)
     if kw.get("done"):
-        await _broadcast("event_done", by=user_email)
+        await _broadcast(couple_id, "event_done", by=user_email)
     return {"ok": True}
 
 
-async def delete_event(user_email: str, event_id: str, **_) -> dict:
+async def delete_event(user_email: str, couple_id: int, event_id: str, **_) -> dict:
     with cursor() as cur:
-        cur.execute("DELETE FROM events WHERE id=?", (event_id,))
+        cur.execute("DELETE FROM events WHERE id=? AND couple_id=?", (event_id, couple_id))
     return {"ok": True}
 
 
 # ── BUCKET ───────────────────────────────────────────
-async def add_bucket(user_email: str, title: str, description: str = "",
+async def add_bucket(user_email: str, couple_id: int, title: str, description: str = "",
                      icon: str = "💖", target_date: str = "", **_) -> dict:
     bid = _now_ms()
     with cursor() as cur:
         cur.execute(
             "INSERT INTO bucket (id, title, description, icon, target_date, priority, "
-            "done, created_at, owner_email) VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?)",
+            "done, created_at, owner_email, couple_id) VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?, ?)",
             (bid, title, description or None, icon or "💖",
-             target_date or None, _now_iso(), user_email),
+             target_date or None, _now_iso(), user_email, couple_id),
         )
-    await _broadcast("bucket_added", title=title, by=user_email)
+    await _broadcast(couple_id, "bucket_added", title=title, by=user_email)
     return {"id": bid, "title": title, "ok": True}
 
 
-async def list_bucket(**_) -> dict:
+async def list_bucket(couple_id: int, **_) -> dict:
     with cursor() as cur:
         return {"items": [dict(r) for r in cur.execute(
             "SELECT id, title, description, icon, target_date, done FROM bucket "
-            "ORDER BY done, created_at DESC LIMIT 50"
+            "WHERE couple_id=? ORDER BY done, created_at DESC LIMIT 50",
+            (couple_id,),
         ).fetchall()]}
 
 
-async def update_bucket(user_email: str, bucket_id: str, **kw) -> dict:
+async def update_bucket(user_email: str, couple_id: int, bucket_id: str, **kw) -> dict:
     fields, args = [], []
     for k in ("title", "description", "icon", "target_date"):
         if k in kw and kw[k] is not None:
@@ -233,25 +252,25 @@ async def update_bucket(user_email: str, bucket_id: str, **kw) -> dict:
             args.append(_now_iso())
     if not fields:
         return {"error": "no fields to update"}
-    args.append(bucket_id)
+    args.extend([bucket_id, couple_id])
     with cursor() as cur:
-        cur.execute(f"UPDATE bucket SET {', '.join(fields)} WHERE id=?", args)
+        cur.execute(f"UPDATE bucket SET {', '.join(fields)} WHERE id=? AND couple_id=?", args)
     if kw.get("done"):
-        await _broadcast("bucket_done", by=user_email)
+        await _broadcast(couple_id, "bucket_done", by=user_email)
     return {"ok": True}
 
 
-async def delete_bucket(user_email: str, bucket_id: str, **_) -> dict:
+async def delete_bucket(user_email: str, couple_id: int, bucket_id: str, **_) -> dict:
     with cursor() as cur:
-        cur.execute("DELETE FROM bucket WHERE id=?", (bucket_id,))
+        cur.execute("DELETE FROM bucket WHERE id=? AND couple_id=?", (bucket_id, couple_id))
     return {"ok": True}
 
 
 # ── PHOTOS ───────────────────────────────────────────
-async def list_photos(query: str = "", place: str = "", **_) -> dict:
+async def list_photos(couple_id: int, query: str = "", place: str = "", **_) -> dict:
     sql = ("SELECT id, caption, place_name, taken_at, lat, lng "
-           "FROM photos WHERE 1=1")
-    args: list = []
+           "FROM photos WHERE couple_id=?")
+    args: list = [couple_id]
     if query:
         sql += " AND (caption LIKE ? OR place_name LIKE ?)"
         args.extend([f"%{query}%"] * 2)
@@ -263,7 +282,7 @@ async def list_photos(query: str = "", place: str = "", **_) -> dict:
         return {"items": [dict(r) for r in cur.execute(sql, args).fetchall()]}
 
 
-async def update_photo(user_email: str, photo_id: str, **kw) -> dict:
+async def update_photo(user_email: str, couple_id: int, photo_id: str, **kw) -> dict:
     fields, args = [], []
     for k in ("caption", "place_name", "lat", "lng"):
         if k in kw and kw[k] is not None:
@@ -271,28 +290,26 @@ async def update_photo(user_email: str, photo_id: str, **kw) -> dict:
             args.append(kw[k])
     if not fields:
         return {"error": "no fields to update"}
-    args.append(photo_id)
+    args.extend([photo_id, couple_id])
     with cursor() as cur:
-        cur.execute(f"UPDATE photos SET {', '.join(fields)} WHERE id=?", args)
+        cur.execute(f"UPDATE photos SET {', '.join(fields)} WHERE id=? AND couple_id=?", args)
     return {"ok": True}
 
 
-async def delete_photo(user_email: str, photo_id: str, **_) -> dict:
+async def delete_photo(user_email: str, couple_id: int, photo_id: str, **_) -> dict:
     with cursor() as cur:
-        row = cur.execute("SELECT filename FROM photos WHERE id=?",
-                          (photo_id,)).fetchone()
+        row = cur.execute("SELECT filename FROM photos WHERE id=? AND couple_id=?",
+                          (photo_id, couple_id)).fetchone()
         if not row:
             return {"error": "photo not found"}
-        cur.execute("DELETE FROM photos WHERE id=?", (photo_id,))
-    try:
-        (settings.uploads_dir / row["filename"]).unlink(missing_ok=True)
-    except Exception:
-        pass
+        cur.execute("DELETE FROM photos WHERE id=? AND couple_id=?", (photo_id, couple_id))
+    from .routes.photos_routes import _purge      # 원본+썸네일 정리는 한 곳에서
+    _purge(photo_id, row["filename"])
     return {"ok": True}
 
 
 # ── MISC ─────────────────────────────────────────────
-async def send_poke(user_email: str, emoji: str, message: str = "", **_) -> dict:
+async def send_poke(user_email: str, couple_id: int, emoji: str, message: str = "", **_) -> dict:
     from .auth import partner_of
     partner = partner_of(user_email)
     if not partner:
@@ -301,9 +318,9 @@ async def send_poke(user_email: str, emoji: str, message: str = "", **_) -> dict
     created = _now_iso()
     with cursor() as cur:
         cur.execute(
-            "INSERT INTO pokes (id, from_email, to_email, emoji, message, seen, created_at) "
-            "VALUES (?, ?, ?, ?, ?, 0, ?)",
-            (pid, user_email, partner, emoji, message or None, created),
+            "INSERT INTO pokes (id, from_email, to_email, emoji, message, seen, created_at, couple_id) "
+            "VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
+            (pid, user_email, partner, emoji, message or None, created, couple_id),
         )
     await hub.send(partner, {
         "kind": "poke", "id": pid, "emoji": emoji,
@@ -312,27 +329,29 @@ async def send_poke(user_email: str, emoji: str, message: str = "", **_) -> dict
     return {"ok": True}
 
 
-async def get_settings(**_) -> dict:
+async def get_settings(couple_id: int, **_) -> dict:
     return {
-        "anniversary_date": kv_get("anniversary_date", settings.anniversary_date),
-        "nickname_a": kv_get("nickname_a", settings.nickname_a),
-        "nickname_b": kv_get("nickname_b", settings.nickname_b),
-        "theme": kv_get("theme", "rosy"),
-        "mascot": kv_get("mascot", "bunny"),
+        "anniversary_date": kv_get(couple_id, "anniversary_date", settings.anniversary_date),
+        "nickname_a": kv_get(couple_id, "nickname_a", settings.nickname_a),
+        "nickname_b": kv_get(couple_id, "nickname_b", settings.nickname_b),
+        "theme": kv_get(couple_id, "theme", "rosy"),
+        "mascot": kv_get(couple_id, "mascot", "bunny"),
     }
 
 
-async def update_settings(user_email: str, **kw) -> dict:
+async def update_settings(user_email: str, couple_id: int, **kw) -> dict:
     valid = {"anniversary_date", "nickname_a", "nickname_b", "theme", "mascot"}
     for k, v in kw.items():
         if k in valid and v is not None and str(v).strip():
-            kv_set(k, str(v).strip())
+            kv_set(couple_id, k, str(v).strip())
     return {"ok": True}
 
 
 # ── DISPATCH ─────────────────────────────────────────
 TOOL_DISPATCH = {
     "kakao_search": kakao_search,
+    "tour_search": tour_search,
+    "list_festivals": list_festivals,
     "add_place": add_place,
     "list_places": list_places,
     "update_place": update_place,
@@ -354,25 +373,27 @@ TOOL_DISPATCH = {
 }
 
 
-async def execute_tool(name: str, args: dict, user_email: str) -> dict:
+async def execute_tool(name: str, args: dict, user_email: str, couple_id: int) -> dict:
     fn = TOOL_DISPATCH.get(name)
     if not fn:
         return {"error": f"unknown tool: {name}"}
-    # 신뢰된 actor(user_email)는 서버가 세션에서 주입한다. 모델/도구 인자가
-    # user_email 을 덮어써 다른 사람 명의로 행동하는 것을 막기 위해 호출자가
-    # 보낸 user_email 은 무조건 제거한다.
-    args = {k: v for k, v in (args or {}).items() if k != "user_email"}
+    # 신뢰된 actor(user_email)와 테넌트(couple_id)는 서버가 세션에서 주입한다.
+    # 모델/도구 인자가 이를 덮어써 다른 사람/다른 커플 명의로 행동하는 것을 막기 위해
+    # 호출자가 보낸 user_email·couple_id 는 무조건 제거한다.
+    args = {k: v for k, v in (args or {}).items() if k not in ("user_email", "couple_id")}
     try:
-        # 도구가 user_email 을 실제로 선언한 경우에만 주입(read-only 도구는 안 받음).
+        # 도구가 실제로 선언한 인자만 주입(read-only 도구는 user_email 안 받음).
         params = inspect.signature(fn).parameters
         if "user_email" in params:
-            return await fn(user_email=user_email, **args)
+            args["user_email"] = user_email
+        if "couple_id" in params:
+            args["couple_id"] = couple_id
         return await fn(**args)
     except Exception as e:
         return {"error": f"{type(e).__name__}: {e}"}
 
 
-# ── 도구 선언(Gemini 가 보는 스키마) ────────────────
+# ── 도구 선언(OpenAI 호환 function-calling 스키마) ────────────────
 TOOL_DECLARATIONS = [{
     "function_declarations": [
         {
@@ -385,6 +406,32 @@ TOOL_DECLARATIONS = [{
                               "description": "Korean keyword, e.g. '홍대 정스버거', '제주 흑돼지'"}
                 },
                 "required": ["query"],
+            },
+        },
+        {
+            "name": "tour_search",
+            "description": "Search Korea's official tourism corpus (한국관광공사 TourAPI, offline snapshot) for 관광지/문화시설/여행코스/레포츠 nationwide — each with photo, area, and coordinates. Prefer this over kakao_search for TRIP/sightseeing destinations ('제주 가볼 만한 곳', '강릉 여행', '경주 관광지', '실내 데이트 문화시설'). Use kakao_search instead for a specific local shop/cafe/restaurant name. Results include lat/lng so you can add_place directly.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "keyword": {"type": "string", "description": "제목/주소 부분일치. 예: '해수욕장', '미술관', '경복궁'"},
+                    "area": {"type": "string", "description": "광역지역명으로 좁히기. 예: '서울','경기','제주','강원','부산'"},
+                    "kind": {"type": "string", "enum": ["관광지", "문화시설", "여행코스", "레포츠"]},
+                    "limit": {"type": "integer"},
+                },
+            },
+        },
+        {
+            "name": "list_festivals",
+            "description": "List upcoming (or currently ongoing) festivals from the official tourism snapshot, each with period·area·photo·coordinates. Use for '이번 주말 뭐하지', '근처에 축제 있어?', or to weave a seasonal festival into a date course. Pass days=7 for this week, area to localize (e.g. '서울','경기'). After suggesting, you can add_event for the date and add_place(kind='wishlist') for the spot.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "area": {"type": "string", "description": "광역지역명. 예: '서울','경기','강원'"},
+                    "keyword": {"type": "string", "description": "축제명 부분일치. 예: '불꽃','벚꽃','커피'"},
+                    "days": {"type": "integer", "description": "오늘부터 N일 이내 시작하는 축제만. 이번 주=7, 이번 달=30. 0=제한없음"},
+                    "limit": {"type": "integer"},
+                },
             },
         },
         {
