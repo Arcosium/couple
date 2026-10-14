@@ -59,6 +59,7 @@ async def tag_photo(pid: str, path: Path, couple_id: int | None = None) -> list[
                         ]}],
                         "max_tokens": 200,
                         "temperature": 0.3,
+                        "chat_template_kwargs": {"enable_thinking": False},
                     },
                 )
                 r.raise_for_status()

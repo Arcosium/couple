@@ -145,6 +145,9 @@ async def _local_completion(messages: list[dict], tools: list[dict]) -> dict:
         "tools": tools,
         "tool_choice": "auto",
         "temperature": 0.7,
+        "max_tokens": 8192,
+        "chat_template_kwargs": {"enable_thinking": False},
+        "top_p": 0.8, "top_k": 20,
     }
     async with httpx.AsyncClient(timeout=cfg.local_llm_timeout_seconds) as client:
         response = await client.post(_chat_completions_url(cfg.local_llm_base_url), json=payload)
