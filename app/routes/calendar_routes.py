@@ -1,10 +1,10 @@
 import secrets
-import time as _time
 from datetime import datetime
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 
 from ..auth import require_couple, partner_of
+from ..crypto import enc_text
 from ..db import cursor
 from ..realtime import hub
 
@@ -87,7 +87,7 @@ def list_events(request: Request):
 @router.post("")
 async def create(body: EventIn, request: Request):
     user, cid = require_couple(request)
-    eid = str(int(_time.time() * 1000))
+    eid = secrets.token_urlsafe(8)
     if body.due:
         try:
             datetime.strptime(body.due, "%Y-%m-%d")
@@ -106,7 +106,7 @@ async def create(body: EventIn, request: Request):
                 owner_email, couple_id, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)""",
             (
-                eid, body.title.strip(), body.due, end_date, body.time, body.note,
+                eid, enc_text(body.title.strip()), body.due, end_date, body.time, enc_text(body.note),
                 body.color, body.source, body.reminder_minutes, user, cid,
                 datetime.now().strftime("%Y-%m-%d %H:%M"),
             ),
@@ -126,7 +126,7 @@ async def patch(eid: str, body: EventPatch, request: Request):
         val = getattr(body, key)
         if val is not None:
             fields.append(f"{key}=?")
-            args.append(val)
+            args.append(enc_text(val) if key in ("title", "note") else val)
     # end_date: 빈 문자열("")=지움(NULL), 날짜=설정, None(미전송)=변경 없음.
     if body.end_date is not None:
         fields.append("end_date=?")

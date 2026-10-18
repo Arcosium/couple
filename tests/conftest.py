@@ -6,10 +6,16 @@ import tempfile
 _TMP_DB = os.path.join(tempfile.mkdtemp(prefix="couple-test-"), "test.db")
 os.environ["COUPLE_DB"] = _TMP_DB
 os.environ["OPEN_SIGNUP"] = "1"
+os.environ["COUPLE_DATA_KEY"] = "dGVzdC1rZXktMzItYnl0ZXMtLS0tLS0tLS0tLS0tLS0"   # 테스트 전용 32바이트
 os.environ.setdefault("ALLOWED_EMAILS", "a@test,b@test")
 
 import pytest
+from pathlib import Path
 from app.config import settings
+
+# 사진도 임시 폴더로(운영 uploads 는 vault 실데이터). photos_routes 가 THUMBS_DIR 을 잡기 전에 바꾼다.
+settings.uploads_dir = Path(_TMP_DB).parent / "photos"
+settings.uploads_dir.mkdir(parents=True, exist_ok=True)
 from app import db as _db
 
 
@@ -25,4 +31,13 @@ def _seed_couple_one():
         for em in (a, b):
             cur.execute("INSERT INTO users (email, couple_id) VALUES (?, 1) "
                         "ON CONFLICT(email) DO UPDATE SET couple_id=1", (em,))
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limits():
+    """가입·로그인 IP 상한이 테스트 간에 누적되지 않게(TestClient IP 는 모두 같다)."""
+    from app import auth
+    auth._hits.clear()
+    auth._attempts.clear()
     yield

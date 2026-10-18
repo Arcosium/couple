@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 
 from .config import settings as cfg
+from .crypto import enc_text
 from .db import cursor, kv_get
 
 # D-day 칩과 동일한 마일스톤 집합(일수 = days_together; 100일 = 만난 날 + 99일)
@@ -44,7 +45,7 @@ def _upsert(couple_id: int, eid: str, title: str, due: date, color: str) -> int:
             "INSERT INTO events (id, title, due, time, note, color, source, done, "
             "reminder_minutes, owner_email, couple_id, created_at) "
             "VALUES (?, ?, ?, NULL, NULL, ?, 'auto', 0, NULL, '', ?, ?)",
-            (eid, title, due.isoformat(), color, couple_id,
+            (eid, enc_text(title), due.isoformat(), color, couple_id,
              datetime.now().strftime("%Y-%m-%d %H:%M")),
         )
     return 1

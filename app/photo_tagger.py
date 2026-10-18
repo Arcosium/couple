@@ -12,6 +12,7 @@ from pathlib import Path
 import httpx
 
 from .config import settings
+from .crypto import read_file
 from .db import couple_members, cursor
 from .realtime import hub
 
@@ -46,7 +47,7 @@ async def tag_photo(pid: str, path: Path, couple_id: int | None = None) -> list[
     """사진 한 장을 태깅해 저장하고 상대방 화면에도 알린다. 실패하면 빈 목록."""
     async with _sem:
         try:
-            b64 = base64.b64encode(path.read_bytes()).decode()
+            b64 = base64.b64encode(read_file(path)).decode()
             async with httpx.AsyncClient(timeout=settings.local_llm_timeout_seconds) as client:
                 r = await client.post(
                     settings.local_llm_base_url.rstrip("/") + "/chat/completions",

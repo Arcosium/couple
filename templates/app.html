@@ -573,13 +573,30 @@
       <hr class="border-rose-100"/>
       <div class="text-sm text-rose-700/70 space-y-1">
         <p>접속 중: <b x-text="me"></b></p>
-        <p>파트너: <b x-text="settings.allowed_emails?.find(e=>e!==me) || '미설정'"></b></p>
+        <p>파트너: <b x-text="partnerId || '미설정'"></b></p>
       </div>
+
+      <details class="text-sm">
+        <summary class="font-medium text-rose-800 cursor-pointer py-1">🔑 비밀번호 변경</summary>
+        <form @submit.prevent="changePassword()" class="space-y-2 mt-2">
+          <input type="password" x-model="account.cur" required autocomplete="current-password" placeholder="현재 비밀번호" class="input w-full" />
+          <input type="password" x-model="account.next" required minlength="8" autocomplete="new-password" placeholder="새 비밀번호 (8자 이상)" class="input w-full" />
+          <button class="btn btn-soft w-full">변경</button>
+        </form>
+      </details>
 
       <button @click="logout()" class="btn btn-soft w-full">로그아웃</button>
 
-      <button @click="if(confirm('정말 커플을 해제할까요? 공유 데이터는 더 이상 보이지 않아요.')) unlinkCouple()"
+      <button @click="if(confirm('정말 커플을 해제할까요? 다시 둘이 연결하면 기록이 돌아와요.')) unlinkCouple()"
               class="w-full mt-4 text-red-500 text-sm py-2 ring-1 ring-red-200 rounded-xl">💔 커플 해제</button>
+
+      <details class="text-sm">
+        <summary class="text-center text-rose-700/80 cursor-pointer py-1">회원 탈퇴</summary>
+        <form @submit.prevent="deleteAccount()" class="flex gap-2 mt-2">
+          <input type="password" x-model="account.delPw" required autocomplete="current-password" placeholder="비밀번호" class="input flex-1 min-w-0" />
+          <button class="text-red-500 px-3 ring-1 ring-red-200 rounded-xl">탈퇴</button>
+        </form>
+      </details>
     </div>
   </section>
 </main>

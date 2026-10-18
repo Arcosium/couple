@@ -1,9 +1,10 @@
-import time as _time
+import secrets
 from datetime import datetime
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 
 from ..auth import require_couple, partner_of
+from ..crypto import enc_text
 from ..db import cursor
 from ..realtime import hub
 from .. import kakao_import
@@ -54,7 +55,7 @@ async def create(body: PlaceIn, request: Request):
     user, cid = require_couple(request)
     if body.kind not in ("visited", "wishlist", "revisit"):
         raise HTTPException(status_code=400, detail="bad_kind")
-    pid = str(int(_time.time() * 1000))
+    pid = secrets.token_urlsafe(8)
     with cursor() as cur:
         cur.execute(
             """INSERT INTO places
@@ -63,7 +64,7 @@ async def create(body: PlaceIn, request: Request):
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 pid, body.name.strip(), body.address, body.lat, body.lng,
-                body.kind, body.category, body.rating, body.memo,
+                body.kind, body.category, body.rating, enc_text(body.memo),
                 body.visited_at, datetime.now().isoformat(timespec="seconds"), user, cid,
             ),
         )
@@ -86,7 +87,7 @@ def patch(pid: str, body: PlacePatch, request: Request):
         v = getattr(body, key)
         if v is not None:
             fields.append(f"{key}=?")
-            args.append(v)
+            args.append(enc_text(v) if key == "memo" else v)
     if not fields:
         return {"ok": True}
     args.append(pid)
@@ -151,9 +152,9 @@ async def import_kakao_confirm(body: KakaoConfirmIn, request: Request):
                 """INSERT INTO places (id, name, address, lat, lng, kind, category, memo,
                    created_at, owner_email, couple_id)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (str(int(_time.time() * 1000)) + str(added), name,
+                (secrets.token_urlsafe(8), name,
                  it.get("road_address") or "", float(lat), float(lng), body.kind,
-                 it.get("category") or "", (it.get("memo") or ""),
+                 it.get("category") or "", enc_text(it.get("memo") or ""),
                  datetime.now().isoformat(timespec="seconds"), user, cid))
             added += 1
     return {"ok": True, "added": added}

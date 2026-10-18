@@ -1,9 +1,10 @@
-import time as _time
+import secrets
 from datetime import datetime
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 from ..auth import require_couple, partner_of
+from ..crypto import enc_text
 from ..db import cursor
 from ..realtime import hub
 
@@ -40,7 +41,7 @@ def list_items(request: Request):
 @router.post("")
 async def create(body: BucketIn, request: Request):
     user, cid = require_couple(request)
-    bid = str(int(_time.time() * 1000))
+    bid = secrets.token_urlsafe(8)
     with cursor() as cur:
         cur.execute(
             """INSERT INTO bucket
@@ -48,7 +49,7 @@ async def create(body: BucketIn, request: Request):
                 created_at, owner_email, couple_id)
                VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)""",
             (
-                bid, body.title.strip(), body.description,
+                bid, enc_text(body.title.strip()), enc_text(body.description),
                 body.icon or "💖", body.target_date, body.priority,
                 datetime.now().isoformat(timespec="seconds"), user, cid,
             ),
@@ -67,7 +68,7 @@ async def patch(bid: str, body: BucketPatch, request: Request):
         v = getattr(body, key)
         if v is not None:
             fields.append(f"{key}=?")
-            args.append(v)
+            args.append(enc_text(v) if key in ("title", "description") else v)
     if body.done is not None:
         fields.append("done=?")
         args.append(1 if body.done else 0)

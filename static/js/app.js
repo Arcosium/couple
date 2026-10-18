@@ -94,6 +94,8 @@ function appState() {
   return {
     /* ── 상태 ────────────────────────────────────────────── */
     me: boot.me || '',
+    partnerId: '',
+    account: { cur: '', next: '', delPw: '' },
     nicks: { a: boot.nickname_a, b: boot.nickname_b, self: '', partner: '' },
     tab: 'home',
     dday: { days_together: null, since: '', next_milestone_days: 0, next_milestone_in: 0, next_anniversary: '', next_anniversary_in: 0, birthdays: [] },
@@ -292,6 +294,7 @@ function appState() {
       const j = await api('/api/auth/me');
       if (!j.authenticated) { location.href = '/'; return; }
       this.me = j.email;
+      this.partnerId = j.partner || '';
       this.isMemberA = !!j.is_member_a;
       this.nicks.self = j.nickname_self || this.nicks.a;
       this.nicks.partner = j.nickname_partner || this.nicks.b;
@@ -309,6 +312,28 @@ function appState() {
     async unlinkCouple() {
       const r = await fetch('/api/couple/unlink', { method: 'POST' });
       if (r.ok) location.href = '/';
+    },
+    _accountErr(e) {
+      const m = e.message;
+      if (m === 'invalid_credentials') return '비밀번호가 달라';
+      if (m === 'weak_password') return '새 비밀번호는 8자 이상';
+      if (m === 'too_many_attempts') return '잠시 후 다시 해줘';
+      return m;
+    },
+    async changePassword() {
+      try {
+        await api('/api/auth/password', { method: 'POST',
+          body: JSON.stringify({ current_password: this.account.cur, new_password: this.account.next }) });
+        this.account.cur = this.account.next = '';
+        this.pushToast('🔑', '비밀번호 변경됨', '다른 기기는 다시 로그인해야 해');
+      } catch (e) { this.pushToast('⚠️', '변경 실패', this._accountErr(e)); }
+    },
+    async deleteAccount() {
+      if (!confirm('탈퇴하면 계정과 둘이 함께 쓴 기록(사진 포함)이 모두 지워져요. 되돌릴 수 없어요.')) return;
+      try {
+        await api('/api/auth/delete_account', { method: 'POST', body: JSON.stringify({ password: this.account.delPw }) });
+        location.href = '/';
+      } catch (e) { this.pushToast('⚠️', '탈퇴 실패', this._accountErr(e)); }
     },
     async kakaoPreview(){
       this.kakaoImport.loading=true; this.kakaoImport.msg='';
@@ -352,7 +377,10 @@ function appState() {
         fd.append('file', file);
         try {
           const r = await fetch('/api/photos/upload', { method: 'POST', body: fd });
-          if (!r.ok) throw new Error('업로드 실패');
+          if (!r.ok) {
+            const d = (await r.json().catch(() => ({}))).detail;
+            throw new Error(({ quota_exceeded: '저장 공간(5GB)이 가득 찼어', too_many_requests: '잠시 후 다시 올려줘' })[d] || '업로드 실패');
+          }
         } catch (e) {
           this.pushToast('⚠️', '업로드 실패', e.message);
         }
@@ -988,7 +1016,8 @@ function appState() {
           this.refreshAll();
         }
       } catch (e) {
-        this.chat.messages.push({ id: 'er' + Date.now(), role: 'assistant', content: `🥹 ${e.message}` });
+        const m = e.message === 'too_many_requests' ? '조금만 쉬었다가 다시 말해줘' : e.message;
+        this.chat.messages.push({ id: 'er' + Date.now(), role: 'assistant', content: `🥹 ${m}` });
       } finally {
         this.chat.thinking = false;
         this.$nextTick(() => this.scrollChat());

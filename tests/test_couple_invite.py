@@ -40,10 +40,11 @@ def test_cannot_invite_already_matched():
         couples.create_invite("b3@t", "b1@t")
 
 
-def test_preinvite_unregistered_email_ok():
+def test_invite_unregistered_rejected():
+    # 미가입 대상 초대를 허용하면 그 아이디를 나중에 가입한 사람이 초대를 받는다.
     _fresh("c1@t")
-    inv = couples.create_invite("c1@t", "newcomer@t")
-    assert inv["invitee_email"] == "newcomer@t"
+    with pytest.raises(ValueError, match="user_not_found"):
+        couples.create_invite("c1@t", "newcomer@t")
 
 
 def test_decline_and_cancel():

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 
 from ..auth import require_couple, partner_of
+from ..crypto import enc_text
 from ..db import cursor
 from ..realtime import hub
 
@@ -71,7 +72,7 @@ async def put_note(body: NoteIn, request: Request):
             "VALUES (?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(couple_id, author_email, date) DO UPDATE SET "
             "content=excluded.content, updated_at=excluded.updated_at",
-            (secrets.token_urlsafe(8), cid, email, body.date, content, now, now))
+            (secrets.token_urlsafe(8), cid, email, body.date, enc_text(content), now, now))
     p = partner_of(email)
     if p:
         await hub.send(p, {"kind": "note", "date": body.date, "from": email})

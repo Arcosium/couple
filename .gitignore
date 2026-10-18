@@ -25,6 +25,8 @@ venv/
 *.log
 data
 /data
+uploads
+/uploads
 /.code-review-graph
 /.remember
 /.git

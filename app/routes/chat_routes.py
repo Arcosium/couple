@@ -20,8 +20,9 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from ..agent_tools import TOOL_DECLARATIONS, execute_tool
-from ..auth import require_couple
+from ..auth import allow, require_couple
 from ..config import settings as cfg
+from ..crypto import enc_text
 from ..db import cursor, kv_get
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
@@ -126,7 +127,7 @@ def _save_msg(couple_id: int, session_id: str, role: str, content: str, email: s
         cur.execute(
             "INSERT INTO chat_messages (id, role, content, session_id, user_email, created_at, couple_id) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (secrets.token_urlsafe(8), role, content, session_id, email,
+            (secrets.token_urlsafe(8), role, enc_text(content), session_id, email,
              datetime.now().isoformat(timespec="seconds"), couple_id),
         )
 
@@ -240,6 +241,9 @@ async def send(body: ChatIn, request: Request):
     msg = (body.message or "").strip()
     if not msg:
         raise HTTPException(status_code=400, detail="empty")
+    # 로컬 LLM 은 GB10 의 다른 서비스와 공유 → 한 사용자가 독점하지 못하게 10분 30회.
+    if not allow(f"chat:{email}", 30, 600):
+        raise HTTPException(status_code=429, detail="too_many_requests")
     sid = (body.session_id or "default")[:64]
     _save_msg(cid, sid, "user", msg, email)
     # 컨텍스트로 보낼 직전까지의 기록 (방금 user 메시지 제외)

@@ -1,5 +1,7 @@
 import re
+import secrets
 import time
+from collections import deque
 from fastapi import Request, HTTPException
 from itsdangerous import URLSafeSerializer, BadSignature
 from argon2 import PasswordHasher
@@ -9,6 +11,7 @@ from .config import settings
 from .db import cursor
 
 SESSION_COOKIE = settings.session_cookie
+SESSION_MAX_AGE = 60 * 60 * 24 * 90      # 쿠키 max_age 와 서버 검증에 함께 쓴다
 _serializer = URLSafeSerializer(settings.secret_key, salt="couple-auth")
 
 _ph = PasswordHasher()
@@ -79,6 +82,31 @@ def clear_attempts(username: str) -> None:
     _attempts.pop(username, None)
 
 
+# ponytail: 단일 프로세스 인메모리 슬라이딩 윈도(재시작 시 리셋). 워커를 늘리면 공유 저장소로.
+_hits: dict[str, deque] = {}
+
+
+def allow(key: str, limit: int, window: float) -> bool:
+    """key 별로 window 초 안에 limit 회까지만 True. 공개 가입 후 한 사용자가
+    가입·로그인·로컬 LLM·업로드를 독점하지 못하게 막는다."""
+    now = time.time()
+    if len(_hits) > 10_000:                       # 오래된 키 정리(메모리 상한)
+        for k in [k for k, q in _hits.items() if not q or now - q[-1] >= 3600]:
+            _hits.pop(k, None)
+    q = _hits.setdefault(key, deque())
+    while q and now - q[0] >= window:
+        q.popleft()
+    if len(q) >= limit:
+        return False
+    q.append(now)
+    return True
+
+
+def client_ip(request: Request) -> str:
+    """cloudflared 뒤에서는 CF-Connecting-IP(클라이언트가 위조 불가)를 쓴다."""
+    return request.headers.get("cf-connecting-ip") or (request.client.host if request.client else "")
+
+
 def create_user(username: str, password: str) -> str:
     """신규 가입: email=username 행 생성. 반환 identity(email). 중복 시 ValueError."""
     username = validate_username(username)
@@ -90,9 +118,10 @@ def create_user(username: str, password: str) -> str:
         ).fetchone()
         if exists:
             raise ValueError("username_taken")
+        # 새 계정은 임의 session_key 로 시작 → 탈퇴한 같은 아이디의 옛 쿠키가 통하지 않는다.
         cur.execute(
-            "INSERT INTO users (email, username, password_hash) VALUES (?, ?, ?)",
-            (username, username, ph),
+            "INSERT INTO users (email, username, password_hash, session_key) VALUES (?, ?, ?, ?)",
+            (username, username, ph, secrets.token_urlsafe(16)),
         )
     return username
 
@@ -131,13 +160,27 @@ def claim_legacy(email: str, username: str, password: str) -> str:
     return email
 
 
+def _session_key(email: str):
+    with cursor() as cur:
+        row = cur.execute("SELECT session_key FROM users WHERE email=?", (email,)).fetchone()
+    return row["session_key"] if row else False      # False = 계정 없음
+
+
 def make_session_cookie(email: str) -> str:
-    return _serializer.dumps({"email": email, "issued": int(time.time())})
+    return _serializer.dumps({"email": email, "issued": int(time.time()),
+                              "k": _session_key(email) or None})
+
+
+def rotate_session_key(email: str) -> None:
+    """이 계정의 모든 기존 쿠키를 무효화(로그아웃·비번 변경)."""
+    with cursor() as cur:
+        cur.execute("UPDATE users SET session_key=? WHERE email=?",
+                    (secrets.token_urlsafe(16), email))
 
 
 def read_session(request: Request) -> str | None:
-    """서명된 세션 쿠키만 신뢰한다. 우리는 비밀번호 검증 후에만 쿠키를 발급하므로
-    서명이 유효하면 신원으로 인정한다(헤더 폴백·화이트리스트 게이트 없음)."""
+    """서명 + 발급 90일 이내 + 계정 존재 + session_key 일치일 때만 신원으로 인정한다.
+    키가 없던 기존 계정(NULL)은 키 없는 기존 쿠키와 일치해 재로그인 없이 유지된다."""
     tok = request.cookies.get(SESSION_COOKIE)
     if not tok:
         return None
@@ -145,7 +188,31 @@ def read_session(request: Request) -> str | None:
         data = _serializer.loads(tok)
     except BadSignature:
         return None
-    return data.get("email") if isinstance(data, dict) else None
+    if not isinstance(data, dict) or not data.get("email"):
+        return None
+    if time.time() - int(data.get("issued") or 0) > SESSION_MAX_AGE:
+        return None
+    key = _session_key(data["email"])
+    if key is False or key != data.get("k"):
+        return None
+    return data["email"]
+
+
+def change_password(email: str, current: str, new: str) -> None:
+    with cursor() as cur:
+        row = cur.execute("SELECT password_hash FROM users WHERE email=?", (email,)).fetchone()
+    if not row or not verify_password(row["password_hash"], current):
+        raise ValueError("invalid_credentials")
+    validate_password(new)
+    with cursor() as cur:
+        cur.execute("UPDATE users SET password_hash=? WHERE email=?", (hash_password(new), email))
+    rotate_session_key(email)
+
+
+def check_password(email: str, pw: str) -> bool:
+    with cursor() as cur:
+        row = cur.execute("SELECT password_hash FROM users WHERE email=?", (email,)).fetchone()
+    return bool(row) and verify_password(row["password_hash"], pw)
 
 
 def require_user(request: Request) -> str:

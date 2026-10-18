@@ -1,16 +1,18 @@
 import io
+import mimetypes
 import secrets
 from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 
 from PIL import Image, ImageOps, ExifTags
 import piexif
 
-from ..auth import require_couple
+from ..auth import allow, require_couple
 from ..config import settings
+from ..crypto import read_file, write_file
 from ..db import cursor
 from ..photo_tagger import enqueue as enqueue_tagging
 
@@ -18,6 +20,7 @@ router = APIRouter(prefix="/api/photos", tags=["photos"])
 
 ALLOWED_EXT = {".jpg", ".jpeg", ".png", ".heic", ".webp", ".gif"}
 MAX_BYTES = 25 * 1024 * 1024  # 25MB
+COUPLE_QUOTA = 5 * 1024 ** 3   # 커플당 사진 총용량 상한(같은 디스크를 모든 서비스가 공유)
 MAX_SIDE = 2560               # 원본 저장 시 긴 변 상한 (그 이상은 재인코딩해 용량↓)
 THUMB_SIDE = 480              # 추억 탭 그리드용 썸네일
 THUMBS_DIR = settings.uploads_dir / "thumbs"
@@ -56,11 +59,11 @@ def _ensure_thumb(pid: str, src: Path) -> Path | None:
     tp = _thumb_path(pid)
     if tp.exists():
         return tp
-    data = _shrink(src.read_bytes(), THUMB_SIDE, 72)
+    data = _shrink(read_file(src), THUMB_SIDE, 72)
     if not data:
         return None
     THUMBS_DIR.mkdir(parents=True, exist_ok=True)
-    tp.write_bytes(data)
+    write_file(tp, data)
     return tp
 
 
@@ -119,6 +122,14 @@ async def upload(
     raw = await file.read()
     if len(raw) > MAX_BYTES:
         raise HTTPException(status_code=413, detail="too_large")
+    # 업로드마다 로컬 LLM 태깅이 돈다 → 시간당 상한도 둔다.
+    if not allow(f"upload:{cid}", 300, 3600):
+        raise HTTPException(status_code=429, detail="too_many_requests")
+    with cursor() as cur:
+        used = cur.execute("SELECT COALESCE(SUM(size_bytes), 0) AS n FROM photos WHERE couple_id=?",
+                           (cid,)).fetchone()["n"]
+    if used + len(raw) > COUPLE_QUOTA:
+        raise HTTPException(status_code=413, detail="quota_exceeded")
     pid = secrets.token_urlsafe(10)
 
     # EXIF(촬영시각·GPS)는 재인코딩 전 원본에서 먼저 뽑는다.
@@ -132,10 +143,10 @@ async def upload(
 
     fname = f"{pid}{ext}"
     settings.uploads_dir.mkdir(parents=True, exist_ok=True)
-    (settings.uploads_dir / fname).write_bytes(raw)
+    write_file(settings.uploads_dir / fname, raw)          # 디스크엔 암호문만
     if (thumb := _shrink(raw, THUMB_SIDE, 72)):
         THUMBS_DIR.mkdir(parents=True, exist_ok=True)
-        _thumb_path(pid).write_bytes(thumb)
+        write_file(_thumb_path(pid), thumb)
 
     final_taken = taken_at or exif_taken or datetime.utcnow().isoformat(timespec="seconds")
     final_lat = lat if lat is not None else exif_lat
@@ -226,7 +237,8 @@ def get_file(pid: str, request: Request, thumb: int = 0):
         raise HTTPException(status_code=404, detail="missing_file")
     if thumb:
         fpath = _ensure_thumb(pid, fpath) or fpath
-    return FileResponse(fpath, headers=IMG_CACHE)
+    media = mimetypes.guess_type(fpath.name)[0] or "application/octet-stream"
+    return Response(read_file(fpath), media_type=media, headers=IMG_CACHE)
 
 
 @router.patch("/{pid}")

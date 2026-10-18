@@ -11,12 +11,12 @@ from __future__ import annotations
 import datetime
 import inspect
 import secrets
-import time
 from pathlib import Path
 
 import httpx
 
 from .config import settings
+from .crypto import enc_text
 from .db import cursor, kv_get, kv_set
 from .realtime import hub
 
@@ -29,8 +29,8 @@ async def _broadcast(couple_id: int, kind: str, **extra) -> None:
         await hub.send(em, payload)
 
 
-def _now_ms() -> str:
-    return str(int(time.time() * 1000))
+def _new_id() -> str:
+    return secrets.token_urlsafe(8)
 
 
 def _now_iso() -> str:
@@ -103,12 +103,12 @@ async def add_place(user_email: str, couple_id: int, name: str, kind: str, lat: 
                     address: str = "", category: str = "", memo: str = "", **_) -> dict:
     if kind not in ("visited", "wishlist", "revisit"):
         return {"error": "kind must be 'visited', 'wishlist', or 'revisit'"}
-    pid = _now_ms()
+    pid = _new_id()
     with cursor() as cur:
         cur.execute(
             "INSERT INTO places (id, name, address, lat, lng, kind, category, memo, "
             "created_at, owner_email, couple_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (pid, name, address, float(lat), float(lng), kind, category, memo,
+            (pid, name, address, float(lat), float(lng), kind, category, enc_text(memo),
              _now_iso(), user_email, couple_id),
         )
     await _broadcast(couple_id, "place_added", name=name, place_kind=kind, by=user_email)
@@ -122,8 +122,8 @@ async def list_places(couple_id: int, kind: str = "", query: str = "", **_) -> d
         sql += " AND kind=?"
         args.append(kind)
     if query:
-        sql += " AND (name LIKE ? OR address LIKE ? OR memo LIKE ?)"
-        args.extend([f"%{query}%"] * 3)
+        sql += " AND (name LIKE ? OR address LIKE ?)"      # memo 는 암호화돼 검색 불가
+        args.extend([f"%{query}%"] * 2)
     sql += " ORDER BY created_at DESC LIMIT 50"
     with cursor() as cur:
         return {"items": [dict(r) for r in cur.execute(sql, args).fetchall()]}
@@ -134,7 +134,7 @@ async def update_place(user_email: str, couple_id: int, place_id: str, **kw) -> 
     for k in ("name", "kind", "lat", "lng", "address", "category", "memo"):
         if k in kw and kw[k] is not None:
             fields.append(f"{k}=?")
-            args.append(kw[k])
+            args.append(enc_text(kw[k]) if k == "memo" else kw[k])
     if not fields:
         return {"error": "no fields to update"}
     args.extend([place_id, couple_id])
@@ -159,7 +159,7 @@ async def delete_place(user_email: str, couple_id: int, place_id: str, **_) -> d
 async def add_event(user_email: str, couple_id: int, title: str, due: str = "", time: str = "",
                     color: str = "", reminder_minutes: int | None = None,
                     note: str = "", end_date: str = "", **_) -> dict:
-    eid = _now_ms()
+    eid = _new_id()
     # 종료일이 시작일 이하면 하루짜리로 취급(end_date=NULL).
     end = end_date or None
     if end and due and end <= due:
@@ -169,7 +169,7 @@ async def add_event(user_email: str, couple_id: int, title: str, due: str = "", 
             "INSERT INTO events (id, title, due, end_date, time, note, color, source, done, "
             "reminder_minutes, owner_email, created_at, couple_id) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, 'calendar', 0, ?, ?, ?, ?)",
-            (eid, title, due or None, end, time or None, note or None,
+            (eid, enc_text(title), due or None, end, time or None, enc_text(note) or None,
              color or "#ec4899", reminder_minutes, user_email,
              datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), couple_id),
         )
@@ -194,7 +194,7 @@ async def update_event(user_email: str, couple_id: int, event_id: str, **kw) -> 
     for k in ("title", "due", "end_date", "time", "note", "color", "reminder_minutes"):
         if k in kw and kw[k] is not None:
             fields.append(f"{k}=?")
-            args.append(kw[k])
+            args.append(enc_text(kw[k]) if k in ("title", "note") else kw[k])
     if "done" in kw and kw["done"] is not None:
         fields.append("done=?")
         args.append(1 if kw["done"] else 0)
@@ -217,12 +217,12 @@ async def delete_event(user_email: str, couple_id: int, event_id: str, **_) -> d
 # ── BUCKET ───────────────────────────────────────────
 async def add_bucket(user_email: str, couple_id: int, title: str, description: str = "",
                      icon: str = "💖", target_date: str = "", **_) -> dict:
-    bid = _now_ms()
+    bid = _new_id()
     with cursor() as cur:
         cur.execute(
             "INSERT INTO bucket (id, title, description, icon, target_date, priority, "
             "done, created_at, owner_email, couple_id) VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?, ?)",
-            (bid, title, description or None, icon or "💖",
+            (bid, enc_text(title), enc_text(description) or None, icon or "💖",
              target_date or None, _now_iso(), user_email, couple_id),
         )
     await _broadcast(couple_id, "bucket_added", title=title, by=user_email)
@@ -243,7 +243,7 @@ async def update_bucket(user_email: str, couple_id: int, bucket_id: str, **kw) -
     for k in ("title", "description", "icon", "target_date"):
         if k in kw and kw[k] is not None:
             fields.append(f"{k}=?")
-            args.append(kw[k])
+            args.append(enc_text(kw[k]) if k in ("title", "description") else kw[k])
     if "done" in kw and kw["done"] is not None:
         fields.append("done=?")
         args.append(1 if kw["done"] else 0)
@@ -320,7 +320,7 @@ async def send_poke(user_email: str, couple_id: int, emoji: str, message: str = 
         cur.execute(
             "INSERT INTO pokes (id, from_email, to_email, emoji, message, seen, created_at, couple_id) "
             "VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
-            (pid, user_email, partner, emoji, message or None, created, couple_id),
+            (pid, user_email, partner, emoji, enc_text(message) or None, created, couple_id),
         )
     await hub.send(partner, {
         "kind": "poke", "id": pid, "emoji": emoji,

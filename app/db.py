@@ -3,13 +3,37 @@ import threading
 from contextlib import contextmanager
 from datetime import datetime
 from .config import settings
+from .crypto import dec_text, enc_text
 
 _lock = threading.Lock()
 
 
+class _Row(dict):
+    """sqlite3.Row 처럼 이름·순서 둘 다로 읽힌다."""
+    def __getitem__(self, k):
+        return list(self.values())[k] if isinstance(k, int) else super().__getitem__(k)
+
+
+def _row(cur, row) -> _Row:
+    """모든 SELECT 결과를 여기서 복호화한다(평문은 그대로 통과). 쓰기는 각 저장 지점에서 enc_text."""
+    return _Row((d[0], dec_text(v)) for d, v in zip(cur.description, row))
+
+
+# 암호화해 저장하는 본문 컬럼. 검색·중복 판정에 쓰는 이름·주소·캡션·태그는 평문으로 둔다.
+ENCRYPTED_COLUMNS = {
+    "chat_messages": ("content",),
+    "daily_notes": ("content",),
+    "events": ("title", "note"),
+    "bucket": ("title", "description"),
+    "places": ("memo",),
+    "pokes": ("message",),
+    "settings_kv": ("value",),
+}
+
+
 def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(settings.db_path, check_same_thread=False, timeout=10)
-    conn.row_factory = sqlite3.Row
+    conn.row_factory = _row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
     return conn
@@ -194,14 +218,22 @@ def _bootstrap_couple_one() -> None:
         if not has_one and legacy and len(emails) < 2:
             print("[migrate] WARNING: 레거시 데이터가 있으나 ALLOWED_EMAILS<2 라 couple #1 미생성 "
                   "— 데이터가 미매칭으로 남음. ALLOWED_EMAILS 설정 후 재기동 필요.", flush=True)
-        if not has_one and legacy and len(emails) >= 2:
+        created = False
+        # 이미 다른 커플에 묶인 계정이 있으면 #1 을 만들지 않는다(현재 커플에서 빼 오는 사고 방지).
+        bound = cur.execute(
+            f"SELECT 1 FROM users WHERE couple_id IS NOT NULL AND email IN ({','.join('?' * len(emails[:2]))})",
+            emails[:2]).fetchone() if emails else None
+        if not has_one and legacy and len(emails) >= 2 and not bound:
             cur.execute("INSERT INTO couples (id, member_a, member_b, created_at) "
                         "VALUES (1, ?, ?, ?)",
                         (emails[0], emails[1], datetime.now().isoformat(timespec="seconds")))
-            has_one = True
+            has_one = created = True
         if has_one:
             for table in ("events", "places", "bucket", "photos", "pokes", "chat_messages"):
                 cur.execute(f"UPDATE {table} SET couple_id=1 WHERE couple_id IS NULL")
+        # 유저 행 보장은 #1 을 처음 만들 때만. 매 기동마다 하면 ALLOWED_EMAILS 변경 시
+        # 비번 없는 행이 couple #1 에 묶여 생기고, 해제한 #1 을 강제로 다시 묶는다.
+        if created:
             for em in emails[:2]:
                 cur.execute("INSERT INTO users (email, couple_id) VALUES (?, 1) "
                             "ON CONFLICT(email) DO UPDATE SET couple_id=1", (em,))
@@ -239,9 +271,13 @@ def _migrate() -> None:
                 cur.execute(f"ALTER TABLE {table} ADD COLUMN couple_id INTEGER")
         # users 에 username/password_hash (멱등) + 부분 유니크 인덱스
         user_cols = {r["name"] for r in cur.execute("PRAGMA table_info(users)").fetchall()}
-        for col in ("username", "password_hash"):
+        # session_key: 로그아웃·비번 변경 시 교체 → 그 전에 발급된 쿠키 전부 무효
+        for col in ("username", "password_hash", "session_key"):
             if col not in user_cols:
                 cur.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT")
+        # couples.ended_at: 해제해도 행을 남겨 같은 두 사람이 다시 연결하면 데이터를 되살린다
+        if "ended_at" not in {r["name"] for r in cur.execute("PRAGMA table_info(couples)").fetchall()}:
+            cur.execute("ALTER TABLE couples ADD COLUMN ended_at TEXT")
         cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username "
                     "ON users (username) WHERE username IS NOT NULL")
         # photos.tags (자동 태깅, 쉼표 구분)
@@ -256,10 +292,26 @@ def _migrate() -> None:
     _bootstrap_couple_one()
 
 
+def encrypt_existing() -> int:
+    """평문으로 남은 본문 컬럼을 암호화(멱등). 바꾼 값 개수 반환."""
+    n = 0
+    with cursor() as cur:
+        for table, cols in ENCRYPTED_COLUMNS.items():
+            for col in cols:
+                rows = cur.execute(
+                    f"SELECT rowid AS rid, {col} AS v FROM {table} "
+                    f"WHERE {col} IS NOT NULL AND {col} != '' AND {col} NOT LIKE 'enc1:%'").fetchall()
+                for r in rows:
+                    cur.execute(f"UPDATE {table} SET {col}=? WHERE rowid=?", (enc_text(r["v"]), r["rid"]))
+                n += len(rows)
+    return n
+
+
 def init_db() -> None:
     with cursor() as cur:
         cur.executescript(SCHEMA)
     _migrate()
+    encrypt_existing()
 
 
 def kv_get(couple_id: int, key: str, default: str | None = None) -> str | None:
@@ -274,13 +326,13 @@ def kv_set(couple_id: int, key: str, value: str) -> None:
         cur.execute(
             "INSERT INTO settings_kv (couple_id, key, value) VALUES (?, ?, ?) "
             "ON CONFLICT(couple_id, key) DO UPDATE SET value=excluded.value",
-            (couple_id, key, value),
+            (couple_id, key, enc_text(value)),
         )
 
 
 def couple_members(couple_id: int) -> list[str]:
     with cursor() as cur:
-        row = cur.execute("SELECT member_a, member_b FROM couples WHERE id=?",
+        row = cur.execute("SELECT member_a, member_b FROM couples WHERE id=? AND ended_at IS NULL",
                           (couple_id,)).fetchone()
     return [row["member_a"], row["member_b"]] if row else []
 

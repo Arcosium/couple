@@ -2,7 +2,7 @@ from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 
 from .. import couples
-from ..auth import require_user, couple_of, partner_of
+from ..auth import allow, require_user, couple_of, partner_of
 from ..db import kv_get, couple_members
 from ..realtime import hub
 
@@ -10,9 +10,7 @@ router = APIRouter(prefix="/api/couple", tags=["couple"])
 
 
 class InviteIn(BaseModel):
-    # NOTE: EmailStr 로 두면 테스트 픽스처(r3@t 등 TLD 없는 주소)가 422 로 막혀
-    # 제공된 라우트 테스트가 통과 불가하다. create_invite 가 '@' 검증 → ValueError(bad_email)
-    # → 400 으로 변환하므로 기본 유효성은 유지된다. (email_validator 는 설치돼 있음)
+    # 상대 아이디(옛 계정은 이메일도 가능). 필드명은 기존 클라이언트 호환을 위해 email 유지.
     email: str
 
 
@@ -43,6 +41,8 @@ def status(request: Request):
 @router.post("/invite")
 async def invite(body: InviteIn, request: Request):
     email = require_user(request)
+    if not allow(f"invite:{email}", 20, 3600):
+        raise HTTPException(status_code=429, detail="too_many_attempts")
     inv = _guard(lambda: couples.create_invite(email, body.email))
     await hub.send(inv["invitee_email"], {"kind": "couple_invite", "from": email})
     return inv

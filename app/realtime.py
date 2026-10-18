@@ -40,8 +40,15 @@ class Hub:
                     self._conns[email].discard(ws)
         return sent
 
-    def online(self) -> list[str]:
-        return list(self._conns.keys())
+    async def drop(self, email: str) -> None:
+        """세션을 끊은 계정(로그아웃·비번 변경·탈퇴)의 열린 연결을 닫는다."""
+        async with self._lock:
+            conns = self._conns.pop(email, set())
+        for ws in conns:
+            try:
+                await ws.close(code=4401)
+            except Exception:
+                pass
 
 
 hub = Hub()

@@ -47,14 +47,14 @@ def test_big_upload_is_downscaled_and_thumbed():
 
     # 원본은 긴 변 MAX_SIDE 이하로 줄어 용량도 작아진다
     stored = pr.settings.uploads_dir / f"{pid}.jpg"
-    with Image.open(stored) as im:
+    with Image.open(io.BytesIO(pr.read_file(stored))) as im:
         assert max(im.size) <= pr.MAX_SIDE
     assert stored.stat().st_size < len(big)
 
     # 썸네일은 업로드 시점에 이미 만들어져 있고 원본보다 훨씬 작다
     tp = pr._thumb_path(pid)
     assert tp.exists() and tp.stat().st_size < stored.stat().st_size
-    with Image.open(tp) as im:
+    with Image.open(io.BytesIO(pr.read_file(tp))) as im:
         assert max(im.size) <= pr.THUMB_SIDE
 
     # 목록/조회 배선

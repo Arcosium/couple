@@ -36,8 +36,14 @@ def test_signup_closed_403(monkeypatch):
     assert r.status_code == 403
 
 
-def test_claim_preserves_legacy_couple():
+def test_claim_closed_by_default_403():
+    r = _client().post("/api/auth/claim", json={"email": "a@test", "username": "x1x", "password": "pw12345678"})
+    assert r.status_code == 403
+
+
+def test_claim_preserves_legacy_couple(monkeypatch):
     # conftest 가 couple #1 을 a@test/b@test 로 시드. a@test 는 username NULL → claim 가능.
+    monkeypatch.setattr(settings, "allow_legacy_claim", True)
     legacy = (settings.allowed_emails + ["a@test"])[0]
     c = _client()
     r = c.post("/api/auth/claim",

@@ -39,7 +39,10 @@ def test_dday_endpoint_includes_both_birthdays():
     from server import app
     from app.config import settings
     from app.auth import SESSION_COOKIE, make_session_cookie
+    from app.db import kv_set
 
+    # 생일은 커플별 kv 에만 있다(env 기본값은 다른 커플에 새므로 폐지).
+    kv_set(1, "birthday_a", "1990-10-09"); kv_set(1, "birthday_b", "1992-02-15")
     r = TestClient(app).get(
         "/api/settings/dday",
         headers={"Cookie": f"{SESSION_COOKIE}={make_session_cookie(settings.allowed_emails[0])}"},

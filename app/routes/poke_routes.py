@@ -4,6 +4,7 @@ from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 
 from ..auth import partner_of, require_couple
+from ..crypto import enc_text
 from ..db import cursor
 from ..realtime import hub
 
@@ -72,7 +73,7 @@ async def send(body: PokeIn, request: Request):
         cur.execute(
             "INSERT INTO pokes (id, from_email, to_email, emoji, message, seen, created_at, couple_id) "
             "VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
-            (pid, user, partner, body.emoji, body.message, created, cid),
+            (pid, user, partner, body.emoji, enc_text(body.message), created, cid),
         )
     sent = await hub.send(
         partner,

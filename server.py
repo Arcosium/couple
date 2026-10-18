@@ -38,6 +38,23 @@ BASE = Path(__file__).resolve().parent
 
 app = FastAPI(title="couple.ai-ve.uk", docs_url=None, redoc_url=None)
 
+ALLOWED_ORIGINS = {
+    "https://couple.ai-ve.uk",
+    "http://localhost:8800",
+    "http://127.0.0.1:8800",
+}
+
+
+@app.middleware("http")
+async def _same_origin_writes(request: Request, call_next):
+    # SameSite=Lax 쿠키는 *.ai-ve.uk 형제 서브도메인의 POST 에도 붙는다 → 쓰기는 Origin 확인.
+    # Origin 없는 요청(서버 간 호출·테스트)은 쿠키 CSRF 경로가 아니므로 통과.
+    origin = request.headers.get("origin")
+    if request.method not in ("GET", "HEAD", "OPTIONS") and origin and origin not in ALLOWED_ORIGINS:
+        return JSONResponse({"detail": "bad_origin"}, status_code=403)
+    return await call_next(request)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://couple.ai-ve.uk", "http://localhost:8800"],
@@ -64,7 +81,7 @@ app.include_router(notes_routes.router)
 
 @app.get("/health")
 def health():
-    return {"ok": True, "online": hub.online()}
+    return {"ok": True}      # 접속자 아이디 목록은 비로그인에게 노출하지 않는다
 
 
 # 안드로이드 앱(APK) 다운로드 — 레포 루트의 CoCo.apk 를 직접 서빙.
@@ -121,18 +138,11 @@ def index(request: Request):
         headers={"Cache-Control": "no-cache, must-revalidate"})
 
 
-ALLOWED_WS_ORIGINS = {
-    "https://couple.ai-ve.uk",
-    "http://localhost:8800",
-    "http://127.0.0.1:8800",
-}
-
-
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     # CSWSH 방지: Origin 화이트리스트 (브라우저는 cross-origin WS 에도 쿠키를 동봉한다).
     origin = ws.headers.get("origin", "")
-    if origin and origin not in ALLOWED_WS_ORIGINS:
+    if origin and origin not in ALLOWED_ORIGINS:
         await ws.close(code=4403)
         return
     # FastAPI WebSocket 은 자동 Depends 가 약하니 쿠키에서 직접 세션 확인
@@ -175,7 +185,7 @@ async def _reminder_loop():
                 try:
                     with db_cursor() as cur:
                         cids = [row["id"] for row in
-                                cur.execute("SELECT id FROM couples").fetchall()]
+                                cur.execute("SELECT id FROM couples WHERE ended_at IS NULL").fetchall()]
                     for cid in cids:
                         ensure_special_events(cid, now.date())
                     last_ensure_day = now.date()
@@ -217,6 +227,11 @@ async def _reminder_loop():
 
 @app.on_event("startup")
 async def _startup():
+    from app.crypto import encrypt_dir
+    from app.routes.photos_routes import THUMBS_DIR
+    n = encrypt_dir(settings.uploads_dir) + encrypt_dir(THUMBS_DIR)
+    if n:
+        print(f"[crypto] 평문 사진 {n}개 암호화", flush=True)
     asyncio.create_task(_reminder_loop())
 
 

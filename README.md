@@ -24,8 +24,8 @@ python3.11 -m uvicorn server:app --host 0.0.0.0 --port 8800 --reload
 | `LOCAL_LLM_MODEL` | 선택. 기본값: `Qwen3.6-35B-A3B-Uncensored-Claude-Genesis-Q8_0.gguf` |
 | `LOCAL_LLM_TIMEOUT_SECONDS` | 선택. 로컬 모델 응답 제한 시간(기본 120초) |
 | `KAKAO_JS_KEY` | https://developers.kakao.com → 앱 → JavaScript 키 |
-| `ANNIVERSARY_DATE` | 만난 날 (YYYY-MM-DD) — 앱 설정에서도 변경 가능 |
-| `NICKNAME_A`, `NICKNAME_B` | 두 사람 닉네임 — 앱 설정에서 변경 가능 |
+| `ALLOW_SIGNUP` | 선택. 기본 1(공개 가입). 0이면 가입 닫힘 |
+| `ALLOW_LEGACY_CLAIM` | 선택. 기본 0. 옛 이메일 계정 이어받기를 다시 열 때만 1 |
 | `SMTP_*` | (선택) 로그인 코드 이메일 발송. 비우면 `journalctl`에 코드 출력 |
 
 `LOCAL_LLM_BASE_URL`만 실제 로컬 서버 주소로 바꾸면 된다. 이 앱은 Gemini,

@@ -21,12 +21,14 @@ class Settings:
     session_cookie: str = os.getenv("SESSION_COOKIE", "couple_session")
     # 자체 아이디+비밀번호 인증 플래그
     allow_signup: bool = os.getenv("ALLOW_SIGNUP", "1").lower() in ("1", "true", "yes")
-    allow_legacy_claim: bool = os.getenv("ALLOW_LEGACY_CLAIM", "1").lower() in ("1", "true", "yes")
+    allow_legacy_claim: bool = os.getenv("ALLOW_LEGACY_CLAIM", "0").lower() in ("1", "true", "yes")
     # DEPRECATED(2026-06-21): CF Access·화이트리스트 폐기. conftest 시드에서만 참조.
     open_signup: bool = os.getenv("OPEN_SIGNUP", "").lower() in ("1", "true", "yes")
     allowed_emails: list[str] = _emails()
 
     secret_key: str = os.getenv("SECRET_KEY", "dev-insecure-change-me")
+    # 저장 데이터 암호화 키(app/crypto.py). 없으면 기동하지 않는다.
+    data_key: str = os.getenv("COUPLE_DATA_KEY", "")
 
     # OpenAI 호환 로컬 서버 주소. 이 머신은 SGLang 호환 프록시가 11434 포트에서 /v1을 제공한다.
     # .env 의 LOCAL_LLM_BASE_URL 이 우선이며, 없으면 아래 기본값으로도 동작한다.
@@ -38,11 +40,13 @@ class Settings:
     kakao_js_key: str = os.getenv("KAKAO_JS_KEY", "")
     kakao_rest_key: str = os.getenv("KAKAO_REST_KEY", "")
 
-    anniversary_date: str = os.getenv("ANNIVERSARY_DATE", "2026-01-01")
-    nickname_a: str = os.getenv("NICKNAME_A", "자기")
-    nickname_b: str = os.getenv("NICKNAME_B", "애기")
-    birthday_a: str = os.getenv("BIRTHDAY_A", "")  # nickname_a(=allowed_emails[0]) 생일
-    birthday_b: str = os.getenv("BIRTHDAY_B", "")  # nickname_b(=allowed_emails[1]) 생일
+    # 커플별 값은 settings_kv 에만 둔다. env 기본값을 쓰면 모든 새 커플에 첫 커플의
+    # 기념일·닉네임이 보이므로 중립값으로 고정한다(미설정 기념일=온보딩에서 입력).
+    anniversary_date: str = ""
+    nickname_a: str = "자기"
+    nickname_b: str = "애기"
+    birthday_a: str = ""
+    birthday_b: str = ""
 
     smtp_host: str = os.getenv("SMTP_HOST", "")
     smtp_port: int = int(os.getenv("SMTP_PORT", "587") or 587)
